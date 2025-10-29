@@ -1,0 +1,146 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  neighborhood String?
+  city      String   @default("Bouaké")
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  requests  Request[]
+}
+
+model Technician {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  email     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  requests  Request[]
+}
+
+model Request {
+  id              String           @id @default(cuid())
+  customerId      String
+  technicianId    String?
+  status          RequestStatus    @default(PENDING)
+  type            RequestType
+  description     String?
+  audioUrl        String?
+  transcription   String?
+  photoUrl        String?
+  scheduledDate   DateTime?
+  notes           String?
+  trackingCode    String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  customer        Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  technician      Technician?      @relation(fields: [technicianId], references: [id])
+  messages        Message[]
+}
+
+enum RequestStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RequestType {
+  TEXT
+  AUDIO
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      UserRole @default(STAFF)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  name         String
+  rating       Int      // 1-5 stars
+  comment      String
+  requestId    String?
+  trackingCode String?
+  serviceType  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Message {
+  id              String           @id @default(cuid())
+  requestId       String?
+  type            MessageType      @default(REQUEST)
+  senderName      String
+  senderPhone     String
+  senderEmail     String?
+  subject         String
+  content         String
+  status          MessageStatus    @default(UNREAD)
+  priority        MessagePriority  @default(NORMAL)
+  audioUrl        String?
+  photoUrl        String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  request         Request?         @relation(fields: [requestId], references: [id])
+  
+  @@map("messages")
+}
+
+enum MessageType {
+  REQUEST
+  CONTACT
+  REVIEW
+  SYSTEM
+}
+
+enum MessageStatus {
+  UNREAD
+  READ
+  ARCHIVED
+  IN_PROGRESS
+  COMPLETED
+  URGENT
+}
+
+enum MessagePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+  TECHNICIAN
+}
