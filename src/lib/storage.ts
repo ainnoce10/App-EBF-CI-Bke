@@ -72,7 +72,12 @@ export class StorageService {
       addRandomSuffix?: boolean;
     } = {}
   ): Promise<FileUploadResult> {
-    const { contentType, addRandomSuffix = true } = options;
+    let { contentType, addRandomSuffix = true } = options;
+    
+    // Si c'est un File et que contentType n'est pas spécifié, utiliser le type du fichier
+    if (file instanceof File && !contentType) {
+      contentType = file.type;
+    }
     
     // Générer un nom de fichier unique si nécessaire
     const finalFilename = addRandomSuffix 
@@ -87,6 +92,11 @@ export class StorageService {
         buffer = Buffer.from(arrayBuffer);
       } else {
         buffer = file;
+      }
+
+      // S'assurer que contentType est défini
+      if (!contentType) {
+        contentType = 'application/octet-stream';
       }
 
       // Upload vers Supabase
@@ -126,16 +136,24 @@ export class StorageService {
     image: Buffer | File,
     filename: string
   ): Promise<FileUploadResult> {
-    const imageTypes = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-    };
+    let contentType: string;
+    
+    // Si c'est un File, utiliser son type s'il est disponible
+    if (image instanceof File && image.type && image.type.startsWith('image/')) {
+      contentType = image.type;
+    } else {
+      // Sinon, déterminer à partir de l'extension
+      const imageTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+      };
 
-    const ext = filename.toLowerCase().match(/\.[0-9a-z]+$/)?.[0] || '.jpg';
-    const contentType = imageTypes[ext as keyof typeof imageTypes] || 'image/jpeg';
+      const ext = filename.toLowerCase().match(/\.[0-9a-z]+$/)?.[0] || '.jpg';
+      contentType = imageTypes[ext as keyof typeof imageTypes] || 'image/jpeg';
+    }
 
     return this.uploadFile(image, filename, {
       contentType,
@@ -150,16 +168,24 @@ export class StorageService {
     audio: Buffer | File,
     filename: string
   ): Promise<FileUploadResult> {
-    const audioTypes = {
-      '.mp3': 'audio/mpeg',
-      '.wav': 'audio/wav',
-      '.ogg': 'audio/ogg',
-      '.m4a': 'audio/mp4',
-      '.webm': 'audio/webm',
-    };
+    let contentType: string;
+    
+    // Si c'est un File, utiliser son type s'il est disponible
+    if (audio instanceof File && audio.type && audio.type.startsWith('audio/')) {
+      contentType = audio.type;
+    } else {
+      // Sinon, déterminer à partir de l'extension
+      const audioTypes = {
+        '.mp3': 'audio/mpeg',
+        '.wav': 'audio/wav',
+        '.ogg': 'audio/ogg',
+        '.m4a': 'audio/mp4',
+        '.webm': 'audio/webm',
+      };
 
-    const ext = filename.toLowerCase().match(/\.[0-9a-z]+$/)?.[0] || '.mp3';
-    const contentType = audioTypes[ext as keyof typeof audioTypes] || 'audio/mpeg';
+      const ext = filename.toLowerCase().match(/\.[0-9a-z]+$/)?.[0] || '.mp3';
+      contentType = audioTypes[ext as keyof typeof audioTypes] || 'audio/mpeg';
+    }
 
     return this.uploadFile(audio, filename, {
       contentType,
@@ -256,13 +282,121 @@ export class StorageService {
   }
 }
 
+// Service de stockage factice pour le développement
+class MockStorageService {
+  async initializeBucket(): Promise<void> {
+    console.log('🪣 Mock: Initialisation du bucket');
+  }
+
+  async uploadFile(
+    file: Buffer | File,
+    filename: string,
+    options: {
+      contentType?: string;
+      addRandomSuffix?: boolean;
+    } = {}
+  ): Promise<FileUploadResult> {
+    console.log('📤 Mock: Upload du fichier', filename);
+    
+    const finalFilename = options.addRandomSuffix 
+      ? `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${filename}`
+      : filename;
+
+    // Simuler une URL locale
+    const mockUrl = `/uploads/mock/${finalFilename}`;
+    
+    return {
+      url: mockUrl,
+      path: finalFilename,
+      contentType: options.contentType || 'application/octet-stream',
+      size: file instanceof File ? file.size : file.length,
+    };
+  }
+
+  async uploadImage(
+    image: Buffer | File,
+    filename: string
+  ): Promise<FileUploadResult> {
+    console.log('📷 Mock: Upload de l\'image', filename);
+    return this.uploadFile(image, filename, {
+      contentType: 'image/jpeg',
+      addRandomSuffix: true,
+    });
+  }
+
+  async uploadAudio(
+    audio: Buffer | File,
+    filename: string
+  ): Promise<FileUploadResult> {
+    console.log('🎵 Mock: Upload de l\'audio', filename);
+    return this.uploadFile(audio, filename, {
+      contentType: 'audio/mpeg',
+      addRandomSuffix: true,
+    });
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    console.log('🗑️ Mock: Suppression du fichier', path);
+  }
+
+  async listFiles(prefix?: string): Promise<any[]> {
+    console.log('📋 Mock: Liste des fichiers', prefix);
+    return [];
+  }
+
+  validateImage(file: File): { valid: boolean; error?: string } {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+    if (file.size > maxSize) {
+      return { valid: false, error: 'L\'image ne doit pas dépasser 10MB' };
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      return { 
+        valid: false, 
+        error: 'Type d\'image non supporté. Utilisez JPG, PNG, GIF ou WebP' 
+      };
+    }
+
+    return { valid: true };
+  }
+
+  validateAudio(file: File): { valid: boolean; error?: string } {
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    const allowedTypes = [
+      'audio/mpeg', 
+      'audio/wav', 
+      'audio/ogg', 
+      'audio/mp4', 
+      'audio/webm'
+    ];
+
+    if (file.size > maxSize) {
+      return { valid: false, error: 'L\'audio ne doit pas dépasser 50MB' };
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      return { 
+        valid: false, 
+        error: 'Type d\'audio non supporté. Utilisez MP3, WAV, OGG, M4A ou WebM' 
+      };
+    }
+
+    return { valid: true };
+  }
+}
+
 // Exporter une fonction pour créer le service
 export function createStorageService(): StorageService {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   
+  // Pour le développement, utiliser des valeurs par défaut si non configuré
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Les variables d\'environnement Supabase ne sont pas configurées');
+    console.log('⚠️  Les variables Supabase ne sont pas configurées, utilisation du mode de développement');
+    // Retourner un service factice pour le développement
+    return new MockStorageService();
   }
   
   return new StorageService(supabaseUrl, supabaseKey);

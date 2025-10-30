@@ -1,9 +1,45 @@
 import { PrismaClient } from '@prisma/client';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 // Singleton pattern pour Prisma Client
 let prisma: PrismaClient;
 
+/**
+ * Initialise la base de données SQLite pour Vercel
+ */
+async function initializeDatabaseForVercel() {
+  try {
+    // Vérifier si nous sommes sur Vercel
+    if (process.env.VERCEL) {
+      console.log('🔄 Détection de l\'environnement Vercel, initialisation de la base de données...');
+      
+      // Créer le répertoire de la base de données s'il n'existe pas
+      const dbDir = path.join(process.cwd(), 'db');
+      try {
+        await fs.access(dbDir);
+      } catch {
+        await fs.mkdir(dbDir, { recursive: true });
+        console.log('📁 Répertoire de base de données créé:', dbDir);
+      }
+      
+      // Vérifier si le fichier de base de données existe
+      const dbPath = path.join(dbDir, 'custom.db');
+      try {
+        await fs.access(dbPath);
+        console.log('✅ Fichier de base de données trouvé:', dbPath);
+      } catch {
+        console.log('📝 Le fichier de base de données n\'existe pas, il sera créé automatiquement');
+      }
+    }
+  } catch (error) {
+    console.error('Erreur lors de l\'initialisation de la base de données:', error);
+  }
+}
+
+// Initialiser la base de données si nécessaire
 if (process.env.NODE_ENV === 'production') {
+  initializeDatabaseForVercel();
   prisma = new PrismaClient();
 } else {
   // En développement, éviter les multiples instances
@@ -11,6 +47,7 @@ if (process.env.NODE_ENV === 'production') {
     prisma: PrismaClient;
   };
   if (!globalWithPrisma.prisma) {
+    initializeDatabaseForVercel();
     globalWithPrisma.prisma = new PrismaClient();
   }
   prisma = globalWithPrisma.prisma;
@@ -62,6 +99,26 @@ export class DatabaseService {
       return { data: result };
     } catch (error) {
       console.error(`Erreur lors de la création dans ${model}:`, error);
+      
+      // Gérer les erreurs spécifiques
+      if (error instanceof Error) {
+        if (error.message.includes('Unable to open the database file')) {
+          return { 
+            error: `Base de données inaccessible. Veuillez réessayer plus tard.`
+          };
+        }
+        if (error.message.includes('no such table')) {
+          return { 
+            error: `La table ${model} n'existe pas. Veuillez contacter l'administrateur.`
+          };
+        }
+        if (error.message.includes('UNIQUE constraint failed')) {
+          return { 
+            error: `Un enregistrement avec ces informations existe déjà.`
+          };
+        }
+      }
+      
       return { 
         error: `Impossible de créer l'enregistrement dans ${model}`
       };
