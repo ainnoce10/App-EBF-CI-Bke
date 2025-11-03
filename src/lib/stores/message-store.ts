@@ -1,20 +1,7 @@
-'use client'
+ 'use client'
 
 import { create } from 'zustand'
-
-interface Message {
-  id: string
-  name: string
-  email: string
-  phone?: string
-  subject: string
-  content: string
-  type: 'CONTACT' | 'REQUEST' | 'COMPLAINT' | 'INFO'
-  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-  status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'
-  createdAt: string
-  updatedAt: string
-}
+import type { Message } from '@/types/message'
 
 interface MessageStore {
   messages: Message[]
