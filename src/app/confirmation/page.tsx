@@ -105,7 +105,62 @@ export default function ConfirmationPage() {
 
             {/* Right Content - Contact Card */}
             <div className={`transform transition-all duration-1000 ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-20 opacity-0'}`}>
-  
+              <Card className="bg-white border-2 border-green-200 shadow-xl hover:shadow-2xl transition-all duration-300">
+                <CardContent className="p-8 space-y-6">
+                  <h3 className="text-2xl font-bold text-gray-900 text-center">
+                    📝 Code de suivi
+                  </h3>
+                  
+                  <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                    <p className="text-lg font-mono text-center font-bold text-blue-800" id="trackingCode">
+                      {new URLSearchParams(window.location.search).get('code') || 'EBF_XXXX'}
+                    </p>
+                  </div>
+
+                  <div className="bg-yellow-50 p-4 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      ⚠️ Conservez précieusement ce code. Il vous permettra de suivre l'état de votre demande.
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-gray-900">Prochaines étapes :</h4>
+                    <ul className="space-y-3">
+                      <li className="flex items-start space-x-3">
+                        <span className="flex-shrink-0 w-6">📞</span>
+                        <span className="text-gray-600">Nous vous appellerons dans les plus brefs délais</span>
+                      </li>
+                      <li className="flex items-start space-x-3">
+                        <span className="flex-shrink-0 w-6">🏠</span>
+                        <span className="text-gray-600">Un technicien se rendra à votre domicile</span>
+                      </li>
+                      <li className="flex items-start space-x-3">
+                        <span className="flex-shrink-0 w-6">📋</span>
+                        <span className="text-gray-600">Diagnostic gratuit de votre installation</span>
+                      </li>
+                      <li className="flex items-start space-x-3">
+                        <span className="flex-shrink-0 w-6">💰</span>
+                        <span className="text-gray-600">Devis détaillé sans engagement</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="pt-4">
+                    <Button 
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 text-lg"
+                      onClick={() => {
+                        const code = document.getElementById('trackingCode')?.textContent;
+                        if (code) {
+                          navigator.clipboard.writeText(code);
+                          alert('Code de suivi copié !');
+                        }
+                      }}
+                    >
+                      📋 Copier le code
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </div>

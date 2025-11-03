@@ -298,11 +298,14 @@ export default function SignalerPage() {
         const result = await response.json();
         console.log('✅ Succès:', result);
         
+        // Générer un code unique de suivi
+        const trackingCode = 'EBF_' + Math.floor(1000 + Math.random() * 9000);
+        
         // Vérifier si la notification par email a été envoyée avec succès
         if (result.success && result.notification) {
           console.log('📧 Email envoyé avec succès');
-          // Rediriger directement vers la page de confirmation
-          router.push("/confirmation");
+          // Rediriger vers la page de confirmation avec le code de suivi
+          router.push(`/confirmation?code=${trackingCode}`);
         } else {
           // Vérifier s'il y a une erreur de notification
           if (result.notification && result.notification.error) {
@@ -311,7 +314,7 @@ export default function SignalerPage() {
           } else {
             // Rediriger vers confirmation même si la notification a échoué
             console.log('✅ Demande enregistrée avec succès');
-            router.push("/confirmation");
+            router.push(`/confirmation?code=${trackingCode}`);
           }
         }
       } else {
