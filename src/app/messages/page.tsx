@@ -369,7 +369,7 @@ export default function MessagesPage() {
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">📨 Messagerie</h1>
             <p className="text-sm sm:text-base text-gray-600">Consultez et gérez tous vos messages en un seul endroit</p>
           </div>
-          <Link href="/dashboard">
+          <Link href="/">
             <Button variant="outline" className="flex items-center gap-2">
               <ArrowLeft className="w-4 h-4" />
               Retour
