@@ -446,7 +446,7 @@ export default function DashboardPage() {
               <MessageCircle className="w-12 h-12 mx-auto mb-4" />
               <h3 className="text-xl font-bold mb-2">Messagerie</h3>
               <p className="text-green-100 mb-4">Consultez tous vos messages</p>
-              <Link href="/messages" className="inline-block bg-white text-green-600 px-6 py-2 rounded-full font-bold hover:bg-green-50 transition-colors">
+              <Link href="/dashboard" className="inline-block bg-white text-green-600 px-6 py-2 rounded-full font-bold hover:bg-green-50 transition-colors">
                 Voir les messages
               </Link>
             </CardContent>
