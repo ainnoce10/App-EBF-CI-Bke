@@ -8,20 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { formatDistanceToNow } from 'date-fns'
 import { fr } from 'date-fns/locale'
-
-interface Message {
-  id: string
-  name: string
-  email: string
-  phone?: string
-  subject: string
-  content: string
-  type: 'CONTACT' | 'REQUEST' | 'COMPLAINT' | 'INFO'
-  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-  status: 'UNREAD' | 'READ' | 'ANSWERED' | 'ARCHIVED'
-  createdAt: string
-  updatedAt?: string
-}
+import type { Message } from '@/types/message'
 
 interface NotificationProps {
   messages: Message[]
@@ -53,7 +40,7 @@ export default function NotificationSystem({
     }
   }, [messages])
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority?: string) => {
     switch (priority) {
       case 'URGENT': return 'bg-red-500'
       case 'HIGH': return 'bg-orange-500'
@@ -63,7 +50,7 @@ export default function NotificationSystem({
     }
   }
 
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type?: string) => {
     switch (type) {
       case 'CONTACT': return <MessageSquare className="h-4 w-4" />
       case 'REQUEST': return <Bell className="h-4 w-4" />
