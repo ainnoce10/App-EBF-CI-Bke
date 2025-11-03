@@ -7,20 +7,7 @@ import { Separator } from '@/components/ui/separator'
 import { Mail, Phone, Calendar, Clock, Tag, AlertTriangle, CheckCircle } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { fr } from 'date-fns/locale'
-
-interface Message {
-  id: string
-  name: string
-  email: string
-  phone?: string
-  subject: string
-  content: string
-  type: 'CONTACT' | 'REQUEST' | 'COMPLAINT' | 'INFO'
-  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-  status: 'UNREAD' | 'READ' | 'ANSWERED' | 'ARCHIVED'
-  createdAt: string
-  updatedAt: string
-}
+import type { Message } from '@/types/message'
 
 interface QuickMessageModalProps {
   message: Message | null
@@ -39,7 +26,7 @@ export default function QuickMessageModal({
 }: QuickMessageModalProps) {
   if (!message) return null
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority?: string) => {
     switch (priority) {
       case 'URGENT': return 'bg-red-100 text-red-800 border-red-200'
       case 'HIGH': return 'bg-orange-100 text-orange-800 border-orange-200'
@@ -49,7 +36,7 @@ export default function QuickMessageModal({
     }
   }
 
-  const getTypeColor = (type: string) => {
+  const getTypeColor = (type?: string) => {
     switch (type) {
       case 'CONTACT': return 'bg-blue-100 text-blue-800'
       case 'REQUEST': return 'bg-purple-100 text-purple-800'
@@ -59,7 +46,7 @@ export default function QuickMessageModal({
     }
   }
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status?: string) => {
     switch (status) {
       case 'UNREAD': return <AlertTriangle className="h-4 w-4 text-red-500" />
       case 'READ': return <CheckCircle className="h-4 w-4 text-blue-500" />

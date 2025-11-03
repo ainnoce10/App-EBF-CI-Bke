@@ -9,21 +9,12 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { formatDistanceToNow } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import type { Message } from '@/types/message'
 import { useNotificationStore } from '@/lib/stores/notification-store'
 import { useMessageStore } from '@/lib/stores/message-store'
 import { toast } from 'sonner'
 
-interface Message {
-  id: string
-  name: string
-  email: string
-  subject: string
-  content: string
-  type: 'CONTACT' | 'REQUEST' | 'COMPLAINT' | 'INFO'
-  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-  status: 'PENDING' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'
-  createdAt: string
-}
+// using shared Message type from '@/types/message'
 
 export function NotificationIcon() {
   const [isOpen, setIsOpen] = useState(false)
