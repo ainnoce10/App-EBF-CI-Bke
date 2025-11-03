@@ -13,12 +13,14 @@ interface Message {
   id: string
   name: string
   email: string
+  phone?: string
   subject: string
   content: string
   type: 'CONTACT' | 'REQUEST' | 'COMPLAINT' | 'INFO'
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
   status: 'UNREAD' | 'READ' | 'ANSWERED' | 'ARCHIVED'
   createdAt: string
+  updatedAt?: string
 }
 
 interface NotificationProps {
