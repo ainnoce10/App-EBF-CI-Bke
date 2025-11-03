@@ -32,30 +32,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import Link from "next/link";
-
-interface Message {
-  id: string;
-  type: 'REQUEST' | 'CONTACT' | 'REVIEW' | 'SYSTEM';
-  senderName: string;
-  senderPhone: string;
-  senderEmail?: string;
-  subject: string;
-  content: string;
-  status: 'UNREAD' | 'READ' | 'ARCHIVED' | 'IN_PROGRESS' | 'COMPLETED' | 'URGENT';
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-  audioUrl?: string;
-  photoUrl?: string;
-  createdAt: string;
-  request?: {
-    id: string;
-    status: string;
-    customer: {
-      name: string;
-      phone: string;
-      neighborhood?: string;
-    };
-  };
-}
+import type { Message } from '@/types/message'
 
 interface MessageStats {
   total: number;
@@ -313,7 +290,7 @@ export default function MessagesPage() {
   };
 
   // Obtenir la couleur de priorité
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority?: string) => {
     switch (priority) {
       case 'URGENT': return 'bg-red-100 text-red-800 border-red-200';
       case 'HIGH': return 'bg-orange-100 text-orange-800 border-orange-200';
@@ -324,7 +301,7 @@ export default function MessagesPage() {
   };
 
   // Obtenir l'icône de type
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type?: string) => {
     switch (type) {
       case 'REQUEST': return <MessageSquare className="w-4 h-4" />;
       case 'CONTACT': return <Phone className="w-4 h-4" />;
@@ -335,7 +312,7 @@ export default function MessagesPage() {
   };
 
   // Obtenir la couleur du badge de statut
-  const getStatusBadgeColor = (status: string) => {
+  const getStatusBadgeColor = (status?: string) => {
     switch (status) {
       case 'UNREAD': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'READ': return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -348,7 +325,7 @@ export default function MessagesPage() {
   };
 
   // Obtenir le texte du statut
-  const getStatusText = (status: string) => {
+  const getStatusText = (status?: string) => {
     switch (status) {
       case 'UNREAD': return 'Non lu';
       case 'READ': return 'Lu';
@@ -356,7 +333,7 @@ export default function MessagesPage() {
       case 'IN_PROGRESS': return 'En cours';
       case 'COMPLETED': return 'Exécuté';
       case 'URGENT': return 'Urgent';
-      default: return status;
+      default: return status || '';
     }
   };
 
