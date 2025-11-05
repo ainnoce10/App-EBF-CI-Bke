@@ -19,6 +19,7 @@ import Link from "next/link";
 import NotificationSystem from "@/components/notification-system";
 import QuickMessageModal from "@/components/quick-message-modal";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
+import type { Message } from '@/types/message'
 
 interface Request {
   id: string;
@@ -47,20 +48,6 @@ interface Technician {
   name: string;
   phone: string;
   isActive: boolean;
-}
-
-interface Message {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  subject: string;
-  content: string;
-  type: 'CONTACT' | 'REQUEST' | 'COMPLAINT' | 'INFO';
-  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
-  status: 'UNREAD' | 'READ' | 'ANSWERED' | 'ARCHIVED';
-  createdAt: string;
-  updatedAt: string;
 }
 
 export default function DashboardPage() {
