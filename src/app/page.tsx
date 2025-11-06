@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useEffect, useState, Suspense } from "react";
 import { Zap, Shield, Clock, Users, Star, ArrowRight, X } from "lucide-react";
 import SearchParamsHandler from "@/components/SearchParamsHandler";
-import { AdminAccessButton } from "@/components/admin/AdminAccessButton";
+import { FooterAdminButton } from "@/components/admin/FooterAdminButton";
 
 
 export default function Home() {
@@ -233,7 +233,6 @@ export default function Home() {
               <Link href="#footer-contact" className="hidden md:flex text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
                 Contact
               </Link>
-              <AdminAccessButton />
             </nav>
           </div>
         </div>
@@ -476,6 +475,9 @@ export default function Home() {
           
           <div className="border-t border-gray-800 pt-8 text-center text-gray-400">
             <p>&copy; 2025 EBF Bouaké - Électricité - Bâtiment - Froid. Tous droits réservés.</p>
+            <div className="mt-4">
+              <FooterAdminButton />
+            </div>
           </div>
         </div>
       </footer>
