@@ -9,6 +9,7 @@ import Link from "next/link";
 export default function ConfirmationPage() {
   const [isVisible, setIsVisible] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [trackingCode, setTrackingCode] = useState("EBF_XXXX");
 
   useEffect(() => {
     setIsVisible(true);
@@ -18,6 +19,13 @@ export default function ConfirmationPage() {
     const timer = setTimeout(() => {
       setShowConfetti(false);
     }, 3000);
+
+    if (typeof window !== "undefined") {
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (code) {
+        setTrackingCode(code);
+      }
+    }
 
     return () => clearTimeout(timer);
   }, []);
@@ -112,8 +120,8 @@ export default function ConfirmationPage() {
                   </h3>
                   
                   <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
-                    <p className="text-lg font-mono text-center font-bold text-blue-800" id="trackingCode">
-                      {new URLSearchParams(window.location.search).get('code') || 'EBF_XXXX'}
+                      <p className="text-lg font-mono text-center font-bold text-blue-800" id="trackingCode">
+                        {trackingCode}
                     </p>
                   </div>
 
