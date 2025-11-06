@@ -42,8 +42,8 @@ export function AdminNotificationIcon() {
   }, [isAdmin, fetchMessages])
 
   const handleNotificationClick = () => {
-    // Rediriger directement vers la page des messages
-    router.push('/messages')
+    // Rediriger vers le dashboard
+    router.push('/dashboard')
   }
 
   const handleLogout = () => {

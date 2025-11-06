@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Shield } from 'lucide-react'
 import { useAuthStore } from '@/lib/stores/auth-store'
@@ -10,7 +10,24 @@ import { AdminNotificationIcon } from '@/components/notifications/AdminNotificat
 export function AdminAccessButton() {
   const [showLogin, setShowLogin] = useState(false)
   const [authKey, setAuthKey] = useState(0) // Forcer le re-rendu
-  const { isAdmin, login } = useAuthStore()
+  const [isHydrated, setIsHydrated] = useState(false)
+  const { isAdmin, login, _hasHydrated } = useAuthStore()
+
+  // Attendre que le store soit hydraté
+  useEffect(() => {
+    if (_hasHydrated) {
+      setIsHydrated(true)
+    } else {
+      // Fallback : considérer comme hydraté après un court délai
+      const timer = setTimeout(() => setIsHydrated(true), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [_hasHydrated])
+
+  // Ne rien afficher jusqu'à l'hydratation
+  if (!isHydrated) {
+    return null
+  }
 
   const handleCloseLogin = () => {
     setShowLogin(false)

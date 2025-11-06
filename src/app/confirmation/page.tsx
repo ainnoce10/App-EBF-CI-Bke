@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle, ArrowLeft, Zap, Shield, Star, Clock, Phone } from "lucide-react";
 import Link from "next/link";
+import { TrackingButton } from "@/components/TrackingButton";
 
 export default function ConfirmationPage() {
   const [isVisible, setIsVisible] = useState(false);
@@ -145,7 +146,7 @@ export default function ConfirmationPage() {
                     </ul>
                   </div>
 
-                  <div className="pt-4">
+                  <div className="pt-4 space-y-3">
                     <Button 
                       className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 text-lg"
                       onClick={() => {
@@ -158,6 +159,9 @@ export default function ConfirmationPage() {
                     >
                       📋 Copier le code
                     </Button>
+                    <div className="w-full">
+                      <TrackingButton />
+                    </div>
                   </div>
                 </CardContent>
               </Card>

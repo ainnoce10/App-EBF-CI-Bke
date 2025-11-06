@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { Message } from '@/types/message'
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 interface MessageStats {
   total: number;
@@ -47,6 +49,8 @@ interface MessageStats {
 }
 
 export default function MessagesPage() {
+  const router = useRouter();
+  const { isAdmin } = useAuthStore();
   const [messages, setMessages] = useState<Message[]>([]);
   const [stats, setStats] = useState<MessageStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +65,13 @@ export default function MessagesPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
 
+  // Vérifier l'authentification admin
+  useEffect(() => {
+    if (!isAdmin) {
+      router.push('/');
+    }
+  }, [isAdmin, router]);
+
   // Debounce pour la recherche
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -73,6 +84,8 @@ export default function MessagesPage() {
 
   // Charger les messages
   const loadMessages = useCallback(async () => {
+    if (!isAdmin) return; // Ne pas charger si l'utilisateur n'est pas admin
+    
     try {
       setLoading(true);
       if (debouncedSearchTerm) {
@@ -114,6 +127,8 @@ export default function MessagesPage() {
 
   // Charger les statistiques
   const loadStats = async () => {
+    if (!isAdmin) return; // Ne pas charger si l'utilisateur n'est pas admin
+    
     try {
       const response = await fetch('/api/messages/stats');
       const data = await response.json();
@@ -127,12 +142,16 @@ export default function MessagesPage() {
   };
 
   useEffect(() => {
-    loadMessages();
-  }, [loadMessages]);
+    if (isAdmin) {
+      loadMessages();
+    }
+  }, [loadMessages, isAdmin]);
 
   useEffect(() => {
-    loadStats();
-  }, [statusFilter, typeFilter, priorityFilter]); // Recharger les stats seulement quand les filtres changent
+    if (isAdmin) {
+      loadStats();
+    }
+  }, [statusFilter, typeFilter, priorityFilter, isAdmin]); // Recharger les stats seulement quand les filtres changent
 
   // Effacer la recherche
   const clearSearch = () => {
@@ -336,6 +355,11 @@ export default function MessagesPage() {
       default: return status || '';
     }
   };
+
+  // Ne pas afficher le contenu si l'utilisateur n'est pas admin
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-2 sm:p-4">

@@ -7,6 +7,7 @@ import { useEffect, useState, Suspense } from "react";
 import { Zap, Shield, Clock, Users, Star, ArrowRight, X } from "lucide-react";
 import SearchParamsHandler from "@/components/SearchParamsHandler";
 import { FooterAdminButton } from "@/components/admin/FooterAdminButton";
+import { TrackingButton } from "@/components/TrackingButton";
 
 
 export default function Home() {
@@ -209,7 +210,7 @@ export default function Home() {
                   quality={80}
                 />
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex-1">
                 <div className="flex items-center gap-2">
                   <Link href="/services" className="md:hidden text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
                     <Button variant="outline" size="sm" className="text-xs px-2 py-1 border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white">
@@ -220,19 +221,25 @@ export default function Home() {
                     EBF Bouaké
                   </h1>
                 </div>
-                <p className="text-sm text-gray-600 mt-1">Électricité • Bâtiment • Froid</p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-sm text-gray-600">Électricité • Bâtiment • Froid</p>
+                  <div className="md:hidden ml-3">
+                    <TrackingButton />
+                  </div>
+                </div>
               </div>
             </div>
-            <nav className="flex space-x-6 items-center">
-              <Link href="#about" className="hidden md:flex text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
+            <nav className="hidden md:flex space-x-4 items-center">
+              <Link href="#about" className="text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
                 À propos
               </Link>
-              <Link href="/services" className="hidden md:flex text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
+              <Link href="/services" className="text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
                 Nos services
               </Link>
-              <Link href="#footer-contact" className="hidden md:flex text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
+              <Link href="#footer-contact" className="text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
                 Contact
               </Link>
+              <TrackingButton />
             </nav>
           </div>
         </div>
