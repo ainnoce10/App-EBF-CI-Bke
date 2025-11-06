@@ -6,7 +6,6 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: false,
   images: {
-    domains: ['localhost'],
     remotePatterns: [
       {
         protocol: 'https',
@@ -14,6 +13,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  allowedDevOrigins: ['*.replit.dev'],
   experimental: {
     optimizePackageImports: ['lucide-react'],
   },
