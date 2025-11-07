@@ -3,7 +3,44 @@ import { databaseService } from '@/lib/database';
 import { createStorageService } from '@/lib/storage';
 import { MessageService } from '@/lib/message-service';
 
+// S'assurer que les variables d'environnement sont chargées
+if (typeof process !== 'undefined' && !process.env.DATABASE_URL) {
+  // En développement, charger depuis .env si disponible
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf8');
+      envContent.split('\n').forEach((line: string) => {
+        const match = line.match(/^([^=]+)=(.*)$/);
+        if (match) {
+          const key = match[1].trim();
+          const value = match[2].trim().replace(/^["']|["']$/g, '');
+          if (!process.env[key]) {
+            process.env[key] = value;
+          }
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Erreur lors du chargement du fichier .env:', error);
+  }
+}
+
 export async function POST(request: NextRequest) {
+  // Déclarer les variables en dehors du try pour qu'elles soient accessibles dans le catch
+  let name: string = '';
+  let phone: string = '';
+  let neighborhood: string = '';
+  let position: string = '';
+  let inputType: 'text' | 'audio' = 'text';
+  let description: string = '';
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+  let audioFile: File | null = null;
+  let photoFile: File | null = null;
+
   try {
     console.log('📥 Début de la réception de la demande...');
     
@@ -19,18 +56,16 @@ export async function POST(request: NextRequest) {
       hasPhoto: formData.get('photo') instanceof File
     });
     
-    const name = formData.get('name') as string;
-    const phone = formData.get('phone') as string;
-    const neighborhood = formData.get('neighborhood') as string;
-    const position = formData.get('position') as string;
-    const inputType = formData.get('inputType') as 'text' | 'audio';
-    const description = formData.get('description') as string;
-    const audioFile = formData.get('audio') as File;
-    const photoFile = formData.get('photo') as File;
+    name = formData.get('name') as string;
+    phone = formData.get('phone') as string;
+    neighborhood = formData.get('neighborhood') as string;
+    position = formData.get('position') as string;
+    inputType = formData.get('inputType') as 'text' | 'audio';
+    description = formData.get('description') as string;
+    audioFile = formData.get('audio') as File;
+    photoFile = formData.get('photo') as File;
     
     // Extraire les coordonnées GPS du champ position si elles sont fournies
-    let latitude: number | null = null;
-    let longitude: number | null = null;
     if (position && position.includes(',')) {
       const coords = position.split(',');
       if (coords.length === 2) {
@@ -72,26 +107,38 @@ export async function POST(request: NextRequest) {
 
     if (!customer.data) {
       console.log('👤 Création d\'un nouveau client...');
+      console.log('📋 Données du client à créer:', { name, phone, neighborhood, city: 'Bouaké', latitude, longitude });
+      
+      // Essayer directement la création, la gestion d'erreur est dans safeCreate
       const createResult = await databaseService.safeCreate('customer', {
-        name: name,
-        phone,
-        neighborhood: neighborhood || null,
+        name: name.trim(),
+        phone: phone.trim(),
+        neighborhood: neighborhood ? neighborhood.trim() : null,
         city: 'Bouaké',
-        latitude: latitude,
-        longitude: longitude
+        latitude: latitude || null,
+        longitude: longitude || null
       });
       
       if (createResult.error) {
+        console.error('❌ Erreur lors de la création du client:', createResult.error);
         return NextResponse.json(
           { error: createResult.error },
           { status: 500 }
         );
       }
       
+      if (!createResult.data) {
+        console.error('❌ Aucune donnée retournée après création du client');
+        return NextResponse.json(
+          { error: 'Erreur lors de la création du client. Aucune donnée retournée.' },
+          { status: 500 }
+        );
+      }
+      
       customer = createResult;
-      console.log('✅ Client créé:', customer.data?.id);
+      console.log('✅ Client créé:', (customer.data as any)?.id);
     } else {
-      console.log('👤 Client existant trouvé:', customer.data?.id);
+      console.log('👤 Client existant trouvé:', (customer.data as any)?.id);
     }
 
     // Handle file uploads
@@ -140,14 +187,55 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('📝 Création de la demande...');
+    
+    // Générer un code de suivi unique au format EBF_XXXX (4 chiffres)
+    const generateTrackingCode = async (): Promise<string> => {
+      const prefix = 'EBF';
+      let attempts = 0;
+      const maxAttempts = 10;
+      
+      while (attempts < maxAttempts) {
+        // Générer un nombre aléatoire de 4 chiffres (1000-9999)
+        const randomNumber = Math.floor(1000 + Math.random() * 9000);
+        const code = `${prefix}_${randomNumber}`;
+        
+        // Vérifier si le code existe déjà
+        const existingRequest = await databaseService.safeFindUnique('request', {
+          where: { trackingCode: code }
+        });
+        
+        if (!existingRequest.data) {
+          return code; // Code unique trouvé
+        }
+        
+        attempts++;
+      }
+      
+      // Si on n'a pas trouvé de code unique après plusieurs tentatives, utiliser un timestamp
+      const timestamp = Date.now().toString().slice(-4);
+      return `${prefix}_${timestamp}`;
+    };
+    
+    const trackingCode = await generateTrackingCode();
+    console.log('🔖 Code de suivi généré:', trackingCode);
+    
     // Create the request
+    const customerId = (customer.data as any)?.id;
+    if (!customerId) {
+      return NextResponse.json(
+        { error: 'Erreur: ID client manquant' },
+        { status: 500 }
+      );
+    }
+    
     const createRequestResult = await databaseService.safeCreate('request', {
-      customerId: customer.data?.id || '',
+      customerId: customerId,
       type: inputType === 'text' ? 'TEXT' : 'AUDIO',
       description: inputType === 'text' ? description : null,
       audioUrl: audioUrl,
       photoUrl: photoUrl,
-      status: 'NEW'
+      status: 'NEW',
+      trackingCode: trackingCode
     });
 
     if (createRequestResult.error) {
@@ -158,11 +246,19 @@ export async function POST(request: NextRequest) {
     }
 
     const newRequest = createRequestResult.data;
-    console.log('✅ Demande créée:', newRequest?.id);
+    const requestId = (newRequest as any)?.id;
+    console.log('✅ Demande créée:', requestId);
+
+    if (!requestId) {
+      return NextResponse.json(
+        { error: 'Erreur: ID demande manquant' },
+        { status: 500 }
+      );
+    }
 
     // Récupérer la demande complète avec les relations
     const fullRequestResult = await databaseService.safeFindUnique('request', {
-      where: { id: newRequest?.id || '' },
+      where: { id: requestId },
       include: {
         customer: true
       }
@@ -182,10 +278,15 @@ export async function POST(request: NextRequest) {
     const messageService = MessageService.getInstance();
     
     // Construire le contenu du message
+    const customerData = customer.data as any;
+    const customerName = customerData?.name || 'Client inconnu';
+    const customerPhone = customerData?.phone || '';
+    const customerNeighborhood = customerData?.neighborhood;
+    
     let messageContent = `Nouvelle demande d'intervention électrique:\n\n`;
-    messageContent += `Client: ${customer.data?.name}\n`;
-    messageContent += `Téléphone: ${customer.data?.phone}\n`;
-    if (customer.data?.neighborhood) messageContent += `Quartier: ${customer.data.neighborhood}\n`;
+    messageContent += `Client: ${customerName}\n`;
+    messageContent += `Téléphone: ${customerPhone}\n`;
+    if (customerNeighborhood) messageContent += `Quartier: ${customerNeighborhood}\n`;
     if (latitude && longitude) messageContent += `Position: ${latitude}, ${longitude}\n`;
     messageContent += `Type: ${inputType === 'text' ? 'Texte' : 'Audio'}\n`;
     
@@ -202,11 +303,11 @@ export async function POST(request: NextRequest) {
     }
 
     const messageResult = await messageService.createMessage({
-      requestId: newRequest?.id || '',
+      requestId: requestId,
       type: 'REQUEST',
-      senderName: customer.data?.name || '',
-      senderPhone: customer.data?.phone || '',
-      subject: `🆕 Nouvelle demande - ${customer.data?.name}`,
+      senderName: customerName,
+      senderPhone: customerPhone,
+      subject: `🆕 Nouvelle demande - ${customerName}`,
       content: messageContent,
       priority: 'HIGH',
       audioUrl: audioUrl || undefined,
@@ -240,7 +341,7 @@ export async function POST(request: NextRequest) {
         
         if (transcriptionText) {
           await databaseService.safeUpdate('request', {
-            where: { id: newRequest?.id || '' },
+            where: { id: requestId },
             data: { transcription: transcriptionText }
           });
         }
@@ -253,7 +354,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       request: fullRequest,
-      message: messageResult
+      message: messageResult,
+      trackingCode: trackingCode
     });
 
   } catch (error) {

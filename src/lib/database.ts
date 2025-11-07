@@ -2,6 +2,33 @@ import { PrismaClient } from '@prisma/client';
 import { promises as fs } from 'fs';
 import path from 'path';
 
+// Charger les variables d'environnement depuis .env si nécessaire
+if (typeof process !== 'undefined' && !process.env.DATABASE_URL) {
+  try {
+    const fsSync = require('fs');
+    const envPath = path.join(process.cwd(), '.env');
+    if (fsSync.existsSync(envPath)) {
+      const envContent = fsSync.readFileSync(envPath, 'utf8');
+      envContent.split('\n').forEach((line: string) => {
+        const trimmedLine = line.trim();
+        if (trimmedLine && !trimmedLine.startsWith('#')) {
+          const match = trimmedLine.match(/^([^=]+)=(.*)$/);
+          if (match) {
+            const key = match[1].trim();
+            const value = match[2].trim().replace(/^["']|["']$/g, '');
+            if (!process.env[key]) {
+              process.env[key] = value;
+            }
+          }
+        }
+      });
+      console.log('✅ Variables d\'environnement chargées depuis .env');
+    }
+  } catch (error) {
+    console.error('Erreur lors du chargement du fichier .env:', error);
+  }
+}
+
 // Singleton pattern pour Prisma Client
 let prisma: PrismaClient;
 
@@ -10,8 +37,34 @@ let prisma: PrismaClient;
  */
 async function initializeDatabaseForVercel() {
   try {
-    // Vérifier si nous sommes sur Vercel
-    if (process.env.VERCEL) {
+    // Toujours initialiser, pas seulement sur Vercel
+    const dbUrl = process.env.DATABASE_URL;
+    console.log('🔍 Initialisation de la base de données...', dbUrl ? 'URL configurée' : 'URL non configurée');
+    
+    if (dbUrl && dbUrl.startsWith('file:')) {
+      // Extraire le chemin du fichier
+      const dbPath = dbUrl.replace('file:', '').replace(/^\.\//, '');
+      const fullPath = path.isAbsolute(dbPath) 
+        ? dbPath 
+        : path.join(process.cwd(), dbPath);
+      
+      // Créer le répertoire parent s'il n'existe pas
+      const dbDir = path.dirname(fullPath);
+      try {
+        await fs.access(dbDir);
+      } catch {
+        await fs.mkdir(dbDir, { recursive: true });
+        console.log('📁 Répertoire de base de données créé:', dbDir);
+      }
+      
+      // Vérifier si le fichier existe
+      try {
+        await fs.access(fullPath);
+        console.log('✅ Fichier de base de données trouvé:', fullPath);
+      } catch {
+        console.log('📝 Le fichier de base de données n\'existe pas, il sera créé automatiquement:', fullPath);
+      }
+    } else if (process.env.VERCEL) {
       console.log('🔄 Détection de l\'environnement Vercel, initialisation de la base de données...');
       
       // Créer le répertoire de la base de données s'il n'existe pas
@@ -37,21 +90,31 @@ async function initializeDatabaseForVercel() {
   }
 }
 
-// Initialiser la base de données si nécessaire
-if (process.env.NODE_ENV === 'production') {
-  initializeDatabaseForVercel();
-  prisma = new PrismaClient();
-} else {
-  // En développement, éviter les multiples instances
-  const globalWithPrisma = global as typeof globalThis & {
-    prisma: PrismaClient;
-  };
-  if (!globalWithPrisma.prisma) {
-    initializeDatabaseForVercel();
-    globalWithPrisma.prisma = new PrismaClient();
-  }
-  prisma = globalWithPrisma.prisma;
+// Initialiser la base de données (appelée de manière asynchrone)
+initializeDatabaseForVercel().catch(console.error);
+
+// En développement, éviter les multiples instances
+const globalWithPrisma = global as typeof globalThis & {
+  prisma: PrismaClient;
+};
+
+if (!globalWithPrisma.prisma) {
+  console.log('🔧 Initialisation du client Prisma...');
+  globalWithPrisma.prisma = new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+  });
 }
+
+prisma = globalWithPrisma.prisma;
+
+// Tester la connexion au démarrage
+prisma.$connect()
+  .then(() => {
+    console.log('✅ Connexion à la base de données établie');
+  })
+  .catch((error) => {
+    console.error('❌ Erreur lors de la connexion à la base de données:', error);
+  });
 
 export class DatabaseService {
   /**
@@ -59,11 +122,19 @@ export class DatabaseService {
    */
   async checkConnection(): Promise<boolean> {
     try {
+      // Essayer une requête simple pour vérifier la connexion
       await prisma.$queryRaw`SELECT 1`;
       return true;
     } catch (error) {
       console.error('Erreur de connexion à la base de données:', error);
-      return false;
+      // Si la connexion échoue, essayer de se reconnecter
+      try {
+        await prisma.$connect();
+        return true;
+      } catch (connectError) {
+        console.error('Impossible de se reconnecter à la base de données:', connectError);
+        return false;
+      }
     }
   }
 
@@ -95,32 +166,70 @@ export class DatabaseService {
     data: any
   ): Promise<{ data?: T; error?: string }> {
     try {
-      const result = await (prisma as any)[model].create({ data });
+      // Prisma convertit les noms de modèles en camelCase
+      // Customer -> customer, Request -> request, etc.
+      const modelName = model.charAt(0).toLowerCase() + model.slice(1);
+      console.log(`🔍 Tentative de création dans ${modelName} (modèle: ${model}) avec les données:`, JSON.stringify(data, null, 2));
+      
+      // Vérifier que le modèle existe
+      if (!(prisma as any)[modelName]) {
+        console.error(`❌ Le modèle ${modelName} n'existe pas dans Prisma Client`);
+        return { 
+          error: `Le modèle ${modelName} n'existe pas. Modèles disponibles: ${Object.keys(prisma).filter(k => !k.startsWith('$') && !k.startsWith('_')).join(', ')}`
+        };
+      }
+      
+      const result = await (prisma as any)[modelName].create({ data });
+      console.log(`✅ Création réussie dans ${modelName}:`, result?.id);
       return { data: result };
     } catch (error) {
-      console.error(`Erreur lors de la création dans ${model}:`, error);
+      console.error(`❌ Erreur lors de la création dans ${model}:`, error);
+      console.error(`📋 Données envoyées:`, JSON.stringify(data, null, 2));
       
       // Gérer les erreurs spécifiques
       if (error instanceof Error) {
-        if (error.message.includes('Unable to open the database file')) {
+        const errorMessage = error.message;
+        console.error(`📝 Message d'erreur complet:`, errorMessage);
+        
+        if (errorMessage.includes('Unable to open the database file') || errorMessage.includes('Can\'t reach database server')) {
           return { 
             error: `Base de données inaccessible. Veuillez réessayer plus tard.`
           };
         }
-        if (error.message.includes('no such table')) {
+        if (errorMessage.includes('no such table') || errorMessage.includes('relation') && errorMessage.includes('does not exist')) {
           return { 
-            error: `La table ${model} n'existe pas. Veuillez contacter l'administrateur.`
+            error: `La table ${model} n'existe pas. Veuillez exécuter les migrations de base de données.`
           };
         }
-        if (error.message.includes('UNIQUE constraint failed')) {
+        if (errorMessage.includes('UNIQUE constraint failed') || errorMessage.includes('Unique constraint') || errorMessage.includes('duplicate key')) {
+          return { 
+            error: `Un enregistrement avec ces informations existe déjà (probablement le numéro de téléphone).`
+          };
+        }
+        if (errorMessage.includes('null value') || errorMessage.includes('NOT NULL constraint')) {
+          return { 
+            error: `Des champs obligatoires sont manquants.`
+          };
+        }
+        if (errorMessage.includes('P2002')) {
           return { 
             error: `Un enregistrement avec ces informations existe déjà.`
           };
         }
+        if (errorMessage.includes('P2003')) {
+          return { 
+            error: `Référence invalide dans la base de données.`
+          };
+        }
+        
+        // Retourner le message d'erreur original pour le débogage
+        return { 
+          error: `Impossible de créer l'enregistrement dans ${model}: ${errorMessage}`
+        };
       }
       
       return { 
-        error: `Impossible de créer l'enregistrement dans ${model}`
+        error: `Impossible de créer l'enregistrement dans ${model}: Erreur inconnue`
       };
     }
   }
@@ -133,7 +242,8 @@ export class DatabaseService {
     options: any = {}
   ): Promise<{ data: T[]; error?: string }> {
     try {
-      const result = await (prisma as any)[model].findMany(options);
+      const modelName = model.charAt(0).toLowerCase() + model.slice(1);
+      const result = await (prisma as any)[modelName].findMany(options);
       return { data: result };
     } catch (error) {
       console.error(`Erreur lors de la recherche dans ${model}:`, error);
@@ -152,7 +262,8 @@ export class DatabaseService {
     options: any
   ): Promise<{ data?: T; error?: string }> {
     try {
-      const result = await (prisma as any)[model].findUnique(options);
+      const modelName = model.charAt(0).toLowerCase() + model.slice(1);
+      const result = await (prisma as any)[modelName].findUnique(options);
       return { data: result };
     } catch (error) {
       console.error(`Erreur lors de la recherche unique dans ${model}:`, error);
@@ -170,7 +281,8 @@ export class DatabaseService {
     options: any
   ): Promise<{ data?: T; error?: string }> {
     try {
-      const result = await (prisma as any)[model].update(options);
+      const modelName = model.charAt(0).toLowerCase() + model.slice(1);
+      const result = await (prisma as any)[modelName].update(options);
       return { data: result };
     } catch (error) {
       console.error(`Erreur lors de la mise à jour dans ${model}:`, error);
@@ -188,7 +300,8 @@ export class DatabaseService {
     options: any
   ): Promise<{ data?: T; error?: string }> {
     try {
-      const result = await (prisma as any)[model].delete(options);
+      const modelName = model.charAt(0).toLowerCase() + model.slice(1);
+      const result = await (prisma as any)[modelName].delete(options);
       return { data: result };
     } catch (error) {
       console.error(`Erreur lors de la suppression dans ${model}:`, error);

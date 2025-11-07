@@ -1,12 +1,29 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { Shield } from 'lucide-react'
+import { Shield, LogOut } from 'lucide-react'
 import { AdminLogin } from '@/components/admin/AdminLogin'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useAuthStore } from '@/lib/stores/auth-store'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 
 export function FooterAdminButton() {
   const [showLogin, setShowLogin] = useState(false)
+  const [isHydrated, setIsHydrated] = useState(false)
+  const { isAdmin, logout, _hasHydrated } = useAuthStore()
+  const router = useRouter()
+
+  // Attendre que le store soit hydraté
+  useEffect(() => {
+    if (_hasHydrated) {
+      setIsHydrated(true)
+    } else {
+      // Fallback : considérer comme hydraté après un court délai
+      const timer = setTimeout(() => setIsHydrated(true), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [_hasHydrated])
 
   const handleLoginClick = () => {
     setShowLogin(true)
@@ -16,6 +33,33 @@ export function FooterAdminButton() {
     setShowLogin(false)
   }
 
+  const handleLogout = () => {
+    logout()
+    toast.success('Déconnexion réussie')
+    router.push('/')
+  }
+
+  // Ne rien afficher jusqu'à l'hydratation
+  if (!isHydrated) {
+    return null
+  }
+
+  // Si l'utilisateur est admin, afficher le bouton de déconnexion
+  if (isAdmin) {
+    return (
+      <Button
+        variant="ghost"
+        onClick={handleLogout}
+        className="text-xs text-red-400 hover:text-red-300 transition-colors p-0 h-auto opacity-60 hover:opacity-100 flex items-center gap-1"
+        title="Déconnexion administrateur"
+      >
+        <LogOut className="w-3 h-3" />
+        Déconnexion
+      </Button>
+    )
+  }
+
+  // Sinon, afficher le bouton de connexion admin
   return (
     <>
       <Button

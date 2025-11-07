@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,6 +18,7 @@ export function AdminLogin({ onClose }: AdminLoginProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuthStore()
+  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,6 +35,10 @@ export function AdminLogin({ onClose }: AdminLoginProps) {
             onClose()
           }, 500) // Laisser le temps au toast de s'afficher
         }
+        // Rediriger vers la page administrateur après un court délai
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 600) // Légèrement après la fermeture du modal
       } else {
         toast.error('Mot de passe incorrect')
       }

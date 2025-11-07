@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,16 +11,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
-import { CalendarIcon, Play, Plus, Eye, Search, MessageCircle, Zap, Shield, Star, Clock, Phone, MapPin } from "lucide-react";
+import { CalendarIcon, Play, Plus, Eye, Search, MessageCircle, Zap, Shield, Star, Clock, Phone, MapPin, Archive, Trash2, CheckCircle, XCircle, User, LogOut } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import NotificationSystem from "@/components/notification-system";
 import QuickMessageModal from "@/components/quick-message-modal";
 import { useNotificationSound } from "@/hooks/use-notification-sound";
-import type { Message } from '@/types/message'
+import { useAuthStore } from "@/lib/stores/auth-store";
+import { toast } from "sonner";
+import type { AppMessage } from '@/types/message';
 
 interface Request {
   id: string;
@@ -50,13 +52,23 @@ interface Technician {
   isActive: boolean;
 }
 
+interface DashboardMessage extends AppMessage {
+  name?: string;
+  email?: string;
+  phone?: string;
+  subject: string;
+  content: string;
+}
+
 export default function DashboardPage() {
+  const router = useRouter();
+  const { isAdmin } = useAuthStore();
   const [requests, setRequests] = useState<Request[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<DashboardMessage[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<Request[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [selectedMessage, setSelectedMessage] = useState<DashboardMessage | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [technicianFilter, setTechnicianFilter] = useState<string>("all");
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -72,12 +84,29 @@ export default function DashboardPage() {
     notes: ''
   });
 
+  // Vérifier l'authentification admin
   useEffect(() => {
-    setIsVisible(true);
-    fetchRequests();
-    fetchTechnicians();
-    fetchMessages();
-  }, []);
+    if (!isAdmin) {
+      router.push('/');
+    }
+  }, [isAdmin, router]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      setIsVisible(true);
+      fetchRequests();
+      fetchTechnicians();
+      fetchMessages();
+      
+      // Rafraîchir automatiquement les demandes toutes les 30 secondes
+      const interval = setInterval(() => {
+        fetchRequests();
+        fetchMessages();
+      }, 30000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     filterRequests();
@@ -109,14 +138,28 @@ export default function DashboardPage() {
 
   const fetchTechnicians = async () => {
     try {
+      const response = await fetch('/api/technicians');
+      if (response.ok) {
+        const data = await response.json();
+        setTechnicians(data);
+      } else {
+        // Fallback vers des techniciens mock si l'API échoue
+        const mockTechnicians: Technician[] = [
+          { id: '1', name: 'Kouassi Jean', phone: '+225 01 23 45 67 89', isActive: true },
+          { id: '2', name: 'Touré Mohamed', phone: '+225 02 34 56 78 90', isActive: true },
+          { id: '3', name: 'Diabaté Marie', phone: '+225 03 45 67 89 01', isActive: true },
+        ];
+        setTechnicians(mockTechnicians);
+      }
+    } catch (error) {
+      console.error('Error fetching technicians:', error);
+      // Fallback vers des techniciens mock en cas d'erreur
       const mockTechnicians: Technician[] = [
         { id: '1', name: 'Kouassi Jean', phone: '+225 01 23 45 67 89', isActive: true },
         { id: '2', name: 'Touré Mohamed', phone: '+225 02 34 56 78 90', isActive: true },
         { id: '3', name: 'Diabaté Marie', phone: '+225 03 45 67 89 01', isActive: true },
       ];
       setTechnicians(mockTechnicians);
-    } catch (error) {
-      console.error('Error fetching technicians:', error);
     }
   };
 
@@ -216,13 +259,93 @@ export default function DashboardPage() {
       });
 
       if (response.ok) {
-        await fetchRequests();
-        setIsEditing(false);
         const updatedRequest = await response.json();
         setSelectedRequest(updatedRequest);
+        await fetchRequests();
+        setIsEditing(false);
+        toast.success('Demande mise à jour avec succès');
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Erreur lors de la mise à jour');
       }
     } catch (error) {
       console.error('Error updating request:', error);
+      toast.error('Erreur lors de la mise à jour de la demande');
+    }
+  };
+
+  // Fonction pour changer rapidement le statut d'une demande
+  const handleQuickStatusChange = async (requestId: string, newStatus: string) => {
+    try {
+      const response = await fetch(`/api/requests/${requestId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (response.ok) {
+        await fetchRequests();
+        toast.success(`Statut changé en "${getStatusLabel(newStatus)}"`);
+      } else {
+        toast.error('Erreur lors du changement de statut');
+      }
+    } catch (error) {
+      console.error('Error changing status:', error);
+      toast.error('Erreur lors du changement de statut');
+    }
+  };
+
+  // Fonction pour archiver une demande (changer le statut en CANCELLED)
+  const handleArchiveRequest = async (requestId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir archiver cette demande ?')) return;
+    
+    try {
+      const response = await fetch(`/api/requests/${requestId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'CANCELLED' }),
+      });
+
+      if (response.ok) {
+        await fetchRequests();
+        toast.success('Demande archivée avec succès');
+        if (selectedRequest?.id === requestId) {
+          setIsDetailModalOpen(false);
+        }
+      } else {
+        toast.error('Erreur lors de l\'archivage');
+      }
+    } catch (error) {
+      console.error('Error archiving request:', error);
+      toast.error('Erreur lors de l\'archivage');
+    }
+  };
+
+  // Fonction pour supprimer une demande
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer définitivement cette demande ? Cette action est irréversible.')) return;
+    
+    try {
+      const response = await fetch(`/api/requests/${requestId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        await fetchRequests();
+        toast.success('Demande supprimée avec succès');
+        if (selectedRequest?.id === requestId) {
+          setIsDetailModalOpen(false);
+        }
+      } else {
+        toast.error('Erreur lors de la suppression');
+      }
+    } catch (error) {
+      console.error('Error deleting request:', error);
+      toast.error('Erreur lors de la suppression');
     }
   };
 
@@ -272,8 +395,8 @@ export default function DashboardPage() {
   };
 
   // Fonctions de gestion des messages
-  const handleMessageClick = (message: Message) => {
-    setSelectedMessage(message);
+  const handleMessageClick = (message: AppMessage) => {
+    setSelectedMessage(message as DashboardMessage);
     setIsMessageModalOpen(true);
   };
 
@@ -317,6 +440,11 @@ export default function DashboardPage() {
   };
 
   const stats = getRequestStats();
+
+  // Ne pas afficher le contenu si l'utilisateur n'est pas admin
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 overflow-hidden">
@@ -362,6 +490,19 @@ export default function DashboardPage() {
                   Voir le site client
                 </Button>
               </Link>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const { logout } = useAuthStore.getState();
+                  logout();
+                  toast.success('Déconnexion réussie');
+                  router.push('/');
+                }}
+                className="hover:scale-105 transition-transform border-red-300 text-red-600 hover:bg-red-50 flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Déconnexion
+              </Button>
             </div>
           </div>
         </div>
@@ -433,7 +574,7 @@ export default function DashboardPage() {
               <MessageCircle className="w-12 h-12 mx-auto mb-4" />
               <h3 className="text-xl font-bold mb-2">Messagerie</h3>
               <p className="text-green-100 mb-4">Consultez tous vos messages</p>
-              <Link href="/dashboard" className="inline-block bg-white text-green-600 px-6 py-2 rounded-full font-bold hover:bg-green-50 transition-colors">
+              <Link href="/messages" className="inline-block bg-white text-green-600 px-6 py-2 rounded-full font-bold hover:bg-green-50 transition-colors">
                 Voir les messages
               </Link>
             </CardContent>
@@ -444,9 +585,11 @@ export default function DashboardPage() {
               <Plus className="w-12 h-12 mx-auto mb-4" />
               <h3 className="text-xl font-bold mb-2">Nouvelle intervention</h3>
               <p className="text-blue-100 mb-4">Créez manuellement une demande</p>
-              <Button className="bg-white text-blue-600 hover:bg-blue-50 font-bold">
-                Créer une demande
-              </Button>
+              <Link href="/signaler">
+                <Button className="bg-white text-blue-600 hover:bg-blue-50 font-bold">
+                  Créer une demande
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>
@@ -612,6 +755,12 @@ export default function DashboardPage() {
                           <div className="text-xs text-gray-500">
                             {format(new Date(request.createdAt), 'HH:mm', { locale: fr })}
                           </div>
+                          {request.scheduledDate && (
+                            <div className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                              <CalendarIcon className="w-3 h-3" />
+                              {format(new Date(request.scheduledDate), 'dd/MM/yyyy', { locale: fr })}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
@@ -621,6 +770,7 @@ export default function DashboardPage() {
                             size="sm"
                             onClick={() => openRequestDetail(request)}
                             className="hover:scale-105 transition-transform"
+                            title="Voir les détails"
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
@@ -629,8 +779,31 @@ export default function DashboardPage() {
                               size="sm"
                               onClick={() => openWhatsAppNotification(request)}
                               className="bg-green-600 hover:bg-green-700 text-white hover:scale-105 transition-transform"
+                              title="Contacter via WhatsApp"
                             >
                               <MessageCircle className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {request.status !== 'COMPLETED' && request.status !== 'CANCELLED' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleQuickStatusChange(request.id, 'COMPLETED')}
+                              className="text-green-600 border-green-600 hover:bg-green-50 hover:scale-105 transition-transform"
+                              title="Marquer comme terminé"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {request.status !== 'CANCELLED' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleArchiveRequest(request.id)}
+                              className="text-gray-600 border-gray-600 hover:bg-gray-50 hover:scale-105 transition-transform"
+                              title="Archiver"
+                            >
+                              <Archive className="w-4 h-4" />
                             </Button>
                           )}
                         </div>
@@ -713,6 +886,32 @@ export default function DashboardPage() {
                         {format(new Date(selectedRequest.createdAt), 'dd/MM/yyyy HH:mm', { locale: fr })}
                       </p>
                     </div>
+                    {selectedRequest.scheduledDate && (
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Date programmée</Label>
+                        <p className="text-lg font-semibold text-blue-600">
+                          <CalendarIcon className="w-4 h-4 inline mr-2" />
+                          {format(new Date(selectedRequest.scheduledDate), 'dd/MM/yyyy HH:mm', { locale: fr })}
+                        </p>
+                      </div>
+                    )}
+                    {selectedRequest.technician && (
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Technicien assigné</Label>
+                        <p className="text-lg font-semibold text-blue-600">
+                          <User className="w-4 h-4 inline mr-2" />
+                          {selectedRequest.technician.name}
+                        </p>
+                      </div>
+                    )}
+                    {selectedRequest.notes && (
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Notes</Label>
+                        <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded">
+                          {selectedRequest.notes}
+                        </p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -857,7 +1056,7 @@ export default function DashboardPage() {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="flex justify-end space-x-2">
+                <div className="flex flex-wrap justify-end gap-2">
                   <Button
                     onClick={() => setIsEditing(true)}
                     className="bg-blue-600 hover:bg-blue-700"
@@ -870,6 +1069,54 @@ export default function DashboardPage() {
                   >
                     <MessageCircle className="w-4 h-4 mr-2" />
                     Contacter le client
+                  </Button>
+                  {selectedRequest.status !== 'COMPLETED' && (
+                    <Button
+                      onClick={() => handleQuickStatusChange(selectedRequest.id, 'COMPLETED')}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Marquer comme terminé
+                    </Button>
+                  )}
+                  {selectedRequest.status !== 'PLANNED' && selectedRequest.status !== 'COMPLETED' && selectedRequest.status !== 'CANCELLED' && (
+                    <Button
+                      onClick={() => {
+                        setEditForm({...editForm, status: 'PLANNED'});
+                        setIsEditing(true);
+                      }}
+                      className="bg-yellow-600 hover:bg-yellow-700"
+                    >
+                      <CalendarIcon className="w-4 h-4 mr-2" />
+                      Programmer
+                    </Button>
+                  )}
+                  {selectedRequest.status !== 'IN_PROGRESS' && selectedRequest.status !== 'COMPLETED' && selectedRequest.status !== 'CANCELLED' && (
+                    <Button
+                      onClick={() => handleQuickStatusChange(selectedRequest.id, 'IN_PROGRESS')}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Zap className="w-4 h-4 mr-2" />
+                      En cours
+                    </Button>
+                  )}
+                  {selectedRequest.status !== 'CANCELLED' && (
+                    <Button
+                      onClick={() => handleArchiveRequest(selectedRequest.id)}
+                      variant="outline"
+                      className="border-gray-600 text-gray-600 hover:bg-gray-50"
+                    >
+                      <Archive className="w-4 h-4 mr-2" />
+                      Archiver
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => handleDeleteRequest(selectedRequest.id)}
+                    variant="outline"
+                    className="border-red-600 text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Supprimer
                   </Button>
                 </div>
               )}

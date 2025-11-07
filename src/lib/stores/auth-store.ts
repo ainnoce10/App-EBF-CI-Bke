@@ -1,7 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 
 interface AuthStore {
   isAdmin: boolean
@@ -9,6 +9,8 @@ interface AuthStore {
   login: (password: string) => boolean
   logout: () => void
   checkAdminStatus: () => boolean
+  _hasHydrated: boolean
+  setHasHydrated: (state: boolean) => void
 }
 
 export const useAuthStore = create<AuthStore>()(
@@ -16,6 +18,11 @@ export const useAuthStore = create<AuthStore>()(
     (set, get) => ({
       isAdmin: false,
       adminPassword: 'ebf2024', // Mot de passe admin simple
+      _hasHydrated: false,
+      
+      setHasHydrated: (state: boolean) => {
+        set({ _hasHydrated: state })
+      },
 
       login: (password: string) => {
         const { adminPassword } = get()
@@ -36,9 +43,22 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'auth-storage',
+      storage: createJSONStorage(() => {
+        if (typeof window !== 'undefined') {
+          return localStorage
+        }
+        return {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+        }
+      }),
       partialize: (state) => ({
         isAdmin: state.isAdmin
-      })
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true)
+      }
     }
   )
 )

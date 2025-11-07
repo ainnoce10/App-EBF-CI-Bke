@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { databaseService } from '@/lib/database'
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,24 +14,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Rechercher la demande avec le code de suivi
-    const serviceRequest = await db.request.findFirst({
+    const requestsResult = await databaseService.safeFindMany('request', {
       where: {
-        trackingCode: {
-          equals: code.trim().toUpperCase(),
-          not: null
-        }
+        trackingCode: code.trim().toUpperCase()
       },
       include: {
         customer: true
       }
     })
 
-    if (!serviceRequest) {
+    if (requestsResult.error || !requestsResult.data || requestsResult.data.length === 0) {
       return NextResponse.json({
         success: false,
         error: 'Code de suivi invalide'
       }, { status: 404 })
     }
+
+    const serviceRequest = requestsResult.data[0]
 
     return NextResponse.json({
       success: true,
@@ -39,11 +38,13 @@ export async function GET(request: NextRequest) {
         id: serviceRequest.id,
         trackingCode: serviceRequest.trackingCode,
         status: serviceRequest.status,
-        customerName: serviceRequest.customer.name,
+        customerName: serviceRequest.customer?.name || 'Client inconnu',
         serviceType: serviceRequest.type === 'TEXT' ? 'Message texte' : 'Message audio',
         description: serviceRequest.description || 'Aucune description',
-        address: serviceRequest.customer.address || `${serviceRequest.customer.neighborhood || ''}, ${serviceRequest.customer.city}`,
-        phone: serviceRequest.customer.phone,
+        address: serviceRequest.customer?.neighborhood 
+          ? `${serviceRequest.customer.neighborhood}, ${serviceRequest.customer.city || 'Bouaké'}`
+          : serviceRequest.customer?.city || 'Bouaké',
+        phone: serviceRequest.customer?.phone || '',
         createdAt: serviceRequest.createdAt,
         updatedAt: serviceRequest.updatedAt
       }

@@ -9,7 +9,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -51,6 +51,7 @@ model Request {
   photoUrl        String?
   scheduledDate   DateTime?
   notes           String?
+  trackingCode    String?          @unique
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   
