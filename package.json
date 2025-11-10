@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node ./node_modules/tsx/dist/cli.mjs server.ts",
     "build": "node ./node_modules/prisma/build/index.js generate && node ./node_modules/next/dist/bin/next build",
-    "vercel-build": "prisma migrate deploy && next build",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "start": "NODE_ENV=production node ./node_modules/tsx/dist/cli.mjs server.ts",
     "lint": "next lint",
     "db:push": "node ./node_modules/prisma/build/index.js db push",
