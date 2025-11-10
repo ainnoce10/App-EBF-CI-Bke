@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { databaseService } from '@/lib/database';
 import { createStorageService } from '@/lib/storage';
 import { MessageService } from '@/lib/message-service';
+// Nodemailer will be used to forward requests by email when SMTP is configured
+// SMTP configuration must be provided via environment variables:
+// SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO
 
 // S'assurer que les variables d'environnement sont chargées
 if (typeof process !== 'undefined' && !process.env.DATABASE_URL) {
@@ -315,6 +318,40 @@ export async function POST(request: NextRequest) {
     });
 
     console.log('📨 Résultat de la création du message:', messageResult);
+
+    // --- Envoi d'un email de notification via SendGrid ---
+    try {
+      const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+      const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
+
+      if (SENDGRID_API_KEY) {
+        const sgMail = await import('@sendgrid/mail');
+        sgMail.default.setApiKey(SENDGRID_API_KEY);
+
+        const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
+        let emailText = messageContent + '\n\n';
+        emailText += `Code de suivi: ${trackingCode}\n`;
+        emailText += `Voir la demande: ${process.env.NEXT_PUBLIC_APP_URL || ''}/dashboard/requests/${requestId}\n`;
+        if (audioUrl) emailText += `Audio: ${audioUrl}\n`;
+        if (photoUrl) emailText += `Photo: ${photoUrl}\n`;
+
+        const msg = {
+          to: emailTo,
+          from: 'notifications@ebf-bouake.vercel.app', // Domaine vérifié SendGrid
+          subject: emailSubject,
+          text: emailText,
+          html: emailText.replace(/\n/g, '<br>')
+        };
+
+        await sgMail.default.send(msg);
+        console.log('✉️ Email de notification envoyé via SendGrid à', emailTo);
+      } else {
+        console.log('✉️ SendGrid API Key non configurée — email non envoyé.');
+      }
+    } catch (emailErr) {
+      console.error('Erreur lors de l\'envoi de l\'email de notification:', emailErr);
+      // Ne pas échouer la création de la demande si l'email échoue
+    }
 
     // If audio file exists, trigger transcription (async)
     if (audioUrl) {
