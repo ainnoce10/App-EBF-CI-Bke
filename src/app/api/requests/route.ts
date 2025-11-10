@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { databaseService } from '@/lib/database';
-import { createStorageService } from '@/lib/storage';
-import { MessageService } from '@/lib/message-service';
-// Nodemailer will be used to forward requests by email when SMTP is configured
-// SMTP configuration must be provided via environment variables:
-// SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO
+// This endpoint now only forwards incoming requests by email (Gmail SMTP or other SMTP).
+// It no longer depends on the database or Supabase storage so those files can be removed.
 
 // S'assurer que les variables d'environnement sont chargées
 if (typeof process !== 'undefined' && !process.env.DATABASE_URL) {
@@ -102,222 +98,53 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Validation des champs réussie');
 
-    // Find or create customer
-    console.log('🔍 Recherche du client...');
-    let customer = await databaseService.safeFindUnique('customer', {
-      where: { phone }
-    });
-
-    if (!customer.data) {
-      console.log('👤 Création d\'un nouveau client...');
-      console.log('📋 Données du client à créer:', { name, phone, neighborhood, city: 'Bouaké', latitude, longitude });
-      
-      // Essayer directement la création, la gestion d'erreur est dans safeCreate
-      const createResult = await databaseService.safeCreate('customer', {
-        name: name.trim(),
-        phone: phone.trim(),
-        neighborhood: neighborhood ? neighborhood.trim() : null,
-        city: 'Bouaké',
-        latitude: latitude || null,
-        longitude: longitude || null
-      });
-      
-      if (createResult.error) {
-        console.error('❌ Erreur lors de la création du client:', createResult.error);
-        return NextResponse.json(
-          { error: createResult.error },
-          { status: 500 }
-        );
-      }
-      
-      if (!createResult.data) {
-        console.error('❌ Aucune donnée retournée après création du client');
-        return NextResponse.json(
-          { error: 'Erreur lors de la création du client. Aucune donnée retournée.' },
-          { status: 500 }
-        );
-      }
-      
-      customer = createResult;
-      console.log('✅ Client créé:', (customer.data as any)?.id);
-    } else {
-      console.log('👤 Client existant trouvé:', (customer.data as any)?.id);
-    }
-
-    // Handle file uploads
-    let audioUrl: string | null = null;
-    let photoUrl: string | null = null;
-
-    console.log('📁 Gestion des fichiers uploadés...');
-    
-    // Créer le service de stockage Supabase
-    const storageService = createStorageService();
-
-    if (audioFile && audioFile.size > 0) {
-      console.log('🎵 Fichier audio détecté:', audioFile.name);
-      
-      // Valider le fichier audio
-      const validation = storageService.validateAudio(audioFile);
-      if (!validation.valid) {
-        return NextResponse.json(
-          { error: validation.error },
-          { status: 400 }
-        );
-      }
-
-      // Upload vers Supabase Storage
-      const uploadResult = await storageService.uploadAudio(audioFile, audioFile.name);
-      audioUrl = uploadResult.url;
-      console.log('✅ Fichier audio uploadé:', audioUrl);
-    }
-
-    if (photoFile && photoFile.size > 0) {
-      console.log('📷 Fichier photo détecté:', photoFile.name);
-      
-      // Valider le fichier image
-      const validation = storageService.validateImage(photoFile);
-      if (!validation.valid) {
-        return NextResponse.json(
-          { error: validation.error },
-          { status: 400 }
-        );
-      }
-
-      // Upload vers Supabase Storage
-      const uploadResult = await storageService.uploadImage(photoFile, photoFile.name);
-      photoUrl = uploadResult.url;
-      console.log('✅ Fichier photo uploadé:', photoUrl);
-    }
-
-    console.log('📝 Création de la demande...');
-    
-    // Générer un code de suivi unique au format EBF_XXXX (4 chiffres)
-    const generateTrackingCode = async (): Promise<string> => {
-      const prefix = 'EBF';
-      let attempts = 0;
-      const maxAttempts = 10;
-      
-      while (attempts < maxAttempts) {
-        // Générer un nombre aléatoire de 4 chiffres (1000-9999)
-        const randomNumber = Math.floor(1000 + Math.random() * 9000);
-        const code = `${prefix}_${randomNumber}`;
-        
-        // Vérifier si le code existe déjà
-        const existingRequest = await databaseService.safeFindUnique('request', {
-          where: { trackingCode: code }
-        });
-        
-        if (!existingRequest.data) {
-          return code; // Code unique trouvé
-        }
-        
-        attempts++;
-      }
-      
-      // Si on n'a pas trouvé de code unique après plusieurs tentatives, utiliser un timestamp
-      const timestamp = Date.now().toString().slice(-4);
-      return `${prefix}_${timestamp}`;
-    };
-    
-    const trackingCode = await generateTrackingCode();
-    console.log('🔖 Code de suivi généré:', trackingCode);
-    
-    // Create the request
-    const customerId = (customer.data as any)?.id;
-    if (!customerId) {
-      return NextResponse.json(
-        { error: 'Erreur: ID client manquant' },
-        { status: 500 }
-      );
-    }
-    
-    const createRequestResult = await databaseService.safeCreate('request', {
-      customerId: customerId,
-      type: inputType === 'text' ? 'TEXT' : 'AUDIO',
-      description: inputType === 'text' ? description : null,
-      audioUrl: audioUrl,
-      photoUrl: photoUrl,
-      status: 'NEW',
-      trackingCode: trackingCode
-    });
-
-    if (createRequestResult.error) {
-      return NextResponse.json(
-        { error: createRequestResult.error },
-        { status: 500 }
-      );
-    }
-
-    const newRequest = createRequestResult.data;
-    const requestId = (newRequest as any)?.id;
-    console.log('✅ Demande créée:', requestId);
-
-    if (!requestId) {
-      return NextResponse.json(
-        { error: 'Erreur: ID demande manquant' },
-        { status: 500 }
-      );
-    }
-
-    // Récupérer la demande complète avec les relations
-    const fullRequestResult = await databaseService.safeFindUnique('request', {
-      where: { id: requestId },
-      include: {
-        customer: true
-      }
-    });
-
-    if (fullRequestResult.error) {
-      return NextResponse.json(
-        { error: fullRequestResult.error },
-        { status: 500 }
-      );
-    }
-
-    const fullRequest = fullRequestResult.data;
-
-    // Créer un message dans le système de messagerie interne
-    console.log('📨 Création du message interne...');
-    const messageService = MessageService.getInstance();
-    
-    // Construire le contenu du message
-    const customerData = customer.data as any;
-    const customerName = customerData?.name || 'Client inconnu';
-    const customerPhone = customerData?.phone || '';
-    const customerNeighborhood = customerData?.neighborhood;
-    
+    // Build a plain text message for email forwarding
+    const customerName = name || 'Client inconnu';
+    const customerPhone = phone || '';
     let messageContent = `Nouvelle demande d'intervention électrique:\n\n`;
     messageContent += `Client: ${customerName}\n`;
     messageContent += `Téléphone: ${customerPhone}\n`;
-    if (customerNeighborhood) messageContent += `Quartier: ${customerNeighborhood}\n`;
+    if (neighborhood) messageContent += `Quartier: ${neighborhood}\n`;
     if (latitude && longitude) messageContent += `Position: ${latitude}, ${longitude}\n`;
     messageContent += `Type: ${inputType === 'text' ? 'Texte' : 'Audio'}\n`;
-    
-    if (inputType === 'text' && description) {
-      messageContent += `\nDescription:\n${description}`;
-    }
-    
-    if (audioUrl) {
-      messageContent += `\n\nMessage audio disponible dans la demande.`;
-    }
-    
-    if (photoUrl) {
-      messageContent += `\n\nPhoto jointe disponible dans la demande.`;
-    }
+    if (inputType === 'text' && description) messageContent += `\nDescription:\n${description}`;
 
-    const messageResult = await messageService.createMessage({
-      requestId: requestId,
-      type: 'REQUEST',
-      senderName: customerName,
-      senderPhone: customerPhone,
-      subject: `🆕 Nouvelle demande - ${customerName}`,
-      content: messageContent,
-      priority: 'HIGH',
-      audioUrl: audioUrl || undefined,
-      photoUrl: photoUrl || undefined,
-    });
+    // Note: file uploads are not processed when DB/storage are removed. If audio/photo present,
+    // include their presence info only.
+    if (audioFile && audioFile.size > 0) messageContent += `\n\nUn message audio a été envoyé.`;
+    if (photoFile && photoFile.size > 0) messageContent += `\n\nUne photo a été jointe.`;
 
-    console.log('📨 Résultat de la création du message:', messageResult);
+    // Try to send email via SMTP (Gmail) if configured, otherwise do nothing but return success.
+    try {
+      const smtpHost = process.env.SMTP_HOST;
+      const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : undefined;
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+      const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
+
+      if (smtpHost && smtpPort && smtpUser && smtpPass) {
+        const nodemailer = await import('nodemailer');
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: { user: smtpUser, pass: smtpPass }
+        });
+
+        const emailSubject = `Nouvelle demande - ${customerName}`;
+        await transporter.sendMail({
+          from: smtpUser,
+          to: emailTo,
+          subject: emailSubject,
+          text: messageContent
+        });
+        console.log('✉️ Email de notification envoyé à', emailTo);
+      } else {
+        console.log('✉️ SMTP non configuré — email non envoyé. Configurez SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS.');
+      }
+    } catch (emailErr) {
+      console.error('Erreur lors de l\'envoi de l\'email:', emailErr);
+    }
 
     // --- Envoi d'un email de notification via SendGrid ---
     try {
