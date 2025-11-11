@@ -154,8 +154,9 @@ export async function POST(request: NextRequest) {
       const resendApiKey = process.env.RESEND_API_KEY;
       const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
 
-      // Generate a tracking code to return to the client (no DB, so not guaranteed unique)
-      const trackingCode = 'EBF_' + Date.now().toString(36).toUpperCase().slice(-6);
+      // Generate a tracking code to return to the client: EBF_XXXX (4 chiffres aléatoires)
+      const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+      const trackingCode = 'EBF_' + randomDigits;
 
       if (resendApiKey) {
         const { Resend } = await import('resend');
@@ -255,12 +256,14 @@ export async function POST(request: NextRequest) {
         });
       } else {
         console.log('⚠️ RESEND_API_KEY non configurée — email non envoyé.');
-        const trackingCode = 'EBF_' + Date.now().toString(36).toUpperCase().slice(-6);
+        const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+        const trackingCode = 'EBF_' + randomDigits;
         return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: 'RESEND_API_KEY not set' } });
       }
     } catch (emailErr) {
       console.error('Erreur lors de l\'envoi de l\'email Resend:', emailErr);
-      const trackingCode = 'EBF_' + Date.now().toString(36).toUpperCase().slice(-6);
+      const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+      const trackingCode = 'EBF_' + randomDigits;
       return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: String(emailErr) } });
     }
 

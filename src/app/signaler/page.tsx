@@ -55,13 +55,6 @@ export default function SignalerPage() {
 
   const startRecording = async () => {
     try {
-      // Vérifier le contexte sécurisé (HTTPS ou localhost)
-      const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
-      if (!isSecure) {
-        alert("🔒 Pour accéder au microphone, utilisez HTTPS ou localhost (mode développement). Veuillez héberger l'application en HTTPS ou tester en localhost.");
-        return;
-      }
-
       console.log("🎤 Demande d'accès au microphone...");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -71,7 +64,7 @@ export default function SignalerPage() {
         },
       });
 
-      console.log('✅ Microphone autorisé');
+      console.log('✅ Microphone autorisé, enregistrement en cours...');
       const mediaRecorder = new MediaRecorder(stream);
 
       mediaRecorderRef.current = mediaRecorder;
@@ -94,17 +87,20 @@ export default function SignalerPage() {
       setIsRecording(true);
     } catch (error: any) {
       console.error('❌ Erreur accès microphone:', error);
-      let errorMessage = "Impossible d'accéder au microphone. Veuillez vérifier les permissions.";
+      
+      // Messages simples, sans demander de manipulations
+      let errorMessage = "⏸️ Microphone non disponible. C'est optionnel.";
 
       if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
-        errorMessage = "🔒 Accès au microphone refusé. Cliquez sur l'icône de cadenas dans la barre d'adresse pour autoriser le microphone, puis rechargez la page.";
+        errorMessage = "⏸️ Microphone non autorisé. Vous pouvez continuer en décrivant votre problème par écrit.";
       } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-        errorMessage = "🎤 Aucun microphone détecté sur votre appareil.";
+        errorMessage = "🎤 Pas de microphone détecté.";
       } else if (error.name === 'NotReadableError') {
-        errorMessage = "⚠️ Le microphone est peut-être utilisé par une autre application.";
+        errorMessage = "⏸️ Microphone inaccessible. Essayez plus tard.";
       }
 
-      alert(errorMessage);
+      console.log('ℹ️', errorMessage);
+      // Afficher l'erreur dans la console, pas d'alert bloquante
     }
   };
 
@@ -185,7 +181,7 @@ export default function SignalerPage() {
 
   const handleGeolocation = async () => {
     if (!navigator.geolocation) {
-      setLocationError("La géolocalisation n'est pas supportée par votre navigateur");
+      setLocationError("Géolocalisation non supportée");
       return;
     }
 
@@ -194,30 +190,16 @@ export default function SignalerPage() {
     setLocationSuccess(null);
 
     try {
-      // Note: Ne pas vérifier navigator.permissions.query ici car sur certains
-      // navigateurs cela peut renvoyer 'denied' alors que le navigateur
-      // affichera la boîte de dialogue de permission. Laisser getCurrentPosition
-      // déclencher la demande de permission directement.
-
-      // Utiliser une approche avec timeout et options plus précises
+      // Demander simplement la position sans pré-vérifier les permissions
+      // Laisser le navigateur gérer la demande de permission
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('La demande de position a expiré'));
-        }, 15000); // 15 secondes de timeout
-
         navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            clearTimeout(timeoutId);
-            resolve(pos);
-          },
-          (error) => {
-            clearTimeout(timeoutId);
-            reject(error);
-          },
+          (pos) => resolve(pos),
+          (error) => reject(error),
           {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0 // Force une nouvelle position plutôt que d'utiliser le cache
+            enableHighAccuracy: false, // Désactiver high accuracy pour plus de compatibilité
+            timeout: 10000,
+            maximumAge: 0
           }
         );
       });
@@ -240,16 +222,15 @@ export default function SignalerPage() {
     } catch (error: any) {
       setLocationLoading(false);
       
-      if (error.message === 'La demande de position a expiré') {
-        setLocationError("⏱️ La demande de position a expiré. Veuillez réessayer dans un endroit avec meilleure réception GPS.");
-      } else if (error.code === error.PERMISSION_DENIED) {
-        setLocationError("🔒 Accès à la position refusé. Pour activer la géolocalisation :\n\n1. Cliquez sur l'icône de cadenas 🔒 dans la barre d'adresse\n2. Autorisez l'accès à la position\n3. Rechargez la page et réessayez");
+      // Messages d'erreur simples (sans demander manipulation)
+      if (error.code === error.PERMISSION_DENIED) {
+        setLocationError("⏸️ Position non autorisée. C'est optionnel — vous pouvez continuer sans.");
       } else if (error.code === error.POSITION_UNAVAILABLE) {
-        setLocationError("📡 Position indisponible. Vérifiez que votre GPS est activé et que vous avez une bonne connexion réseau.");
+        setLocationError("📡 Position indisponible. C'est normal à l'intérieur — vous pouvez continuer.");
       } else if (error.code === error.TIMEOUT) {
-        setLocationError("⏱️ Délai d'attente dépassé. Veuillez réessayer dans un endroit avec meilleure réception.");
+        setLocationError("⏱️ Position introuvable. Essayez dans quelques secondes.");
       } else {
-        setLocationError("❌ Une erreur est survenue lors de la récupération de votre position. Veuillez réessayer.");
+        setLocationError("Position non disponible. Ce n'est pas obligatoire.");
       }
     }
   };
@@ -280,10 +261,7 @@ export default function SignalerPage() {
       return;
     }
 
-    if (inputType === "audio" && !audioBlob) {
-      setFormError("Veuillez enregistrer un message vocal");
-      return;
-    }
+    // Note: Audio est optionnel — on peut soumettre sans enregistrement audio
 
     setIsSubmitting(true);
 
