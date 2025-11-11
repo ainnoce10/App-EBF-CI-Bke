@@ -1,6 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { promises as fs } from 'fs';
+import path from 'path';
+
 // This endpoint now only forwards incoming requests by email (Gmail SMTP or other SMTP).
 // It no longer depends on the database or Supabase storage so those files can be removed.
+
+// Helper function to load/save tracking data from JSON file
+const TRACKING_DATA_DIR = path.join(process.cwd(), 'data');
+const TRACKING_FILE = path.join(TRACKING_DATA_DIR, 'tracking.json');
+
+async function ensureTrackingDir() {
+  try {
+    await fs.mkdir(TRACKING_DATA_DIR, { recursive: true });
+  } catch (err) {
+    console.error('Erreur création répertoire data:', err);
+  }
+}
+
+async function loadTrackingData(): Promise<Record<string, any>> {
+  try {
+    await ensureTrackingDir();
+    const data = await fs.readFile(TRACKING_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (err) {
+    console.log('Fichier tracking.json non trouvé, création d\'un nouveau');
+    return {};
+  }
+}
+
+async function saveTrackingData(data: Record<string, any>) {
+  try {
+    await ensureTrackingDir();
+    await fs.writeFile(TRACKING_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Erreur sauvegarde tracking.json:', err);
+  }
+}
 
 // S'assurer que les variables d'environnement sont chargées
 if (typeof process !== 'undefined' && !process.env.DATABASE_URL) {
@@ -119,11 +154,14 @@ export async function POST(request: NextRequest) {
       const resendApiKey = process.env.RESEND_API_KEY;
       const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
 
+      // Generate a tracking code to return to the client (no DB, so not guaranteed unique)
+      const trackingCode = 'EBF_' + Date.now().toString(36).toUpperCase().slice(-6);
+
       if (resendApiKey) {
         const { Resend } = await import('resend');
         const resend = new Resend(resendApiKey);
 
-        const emailSubject = `Nouvelle demande - ${customerName}`;
+        const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
         const htmlContent = `
           <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9;">
             <h2 style="color: #333;">Nouvelle demande d'intervention électrique</h2>
@@ -133,24 +171,97 @@ export async function POST(request: NextRequest) {
             ${latitude && longitude ? `<p><strong>Position GPS:</strong> ${latitude}, ${longitude}</p>` : ''}
             <p><strong>Type:</strong> ${inputType === 'text' ? 'Texte' : 'Audio'}</p>
             ${inputType === 'text' && description ? `<p><strong>Description:</strong></p><pre>${description}</pre>` : ''}
+            <p><strong>Code de suivi:</strong> <code>${trackingCode}</code></p>
             ${audioFile && audioFile.size > 0 ? '<p>📎 Un message audio a été envoyé.</p>' : ''}
             ${photoFile && photoFile.size > 0 ? '<p>📎 Une photo a été jointe.</p>' : ''}
           </div>
         `;
 
-        await resend.emails.send({
+        const attachments: { type: string; name: string; data: string }[] = [];
+
+        // Convert File objects to base64 attachments if present
+        try {
+          if (audioFile && audioFile.size > 0) {
+            console.log(`🎵 Traitement fichier audio: ${audioFile.name} (${audioFile.size} bytes)`);
+            const buffer = await audioFile.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            attachments.push({
+              type: audioFile.type || 'audio/wav',
+              name: audioFile.name || `audio-${Date.now()}.wav`,
+              data: b64
+            });
+            console.log(`✅ Fichier audio converti: ${attachments[attachments.length - 1].name}`);
+          }
+        } catch (err) {
+          console.error('❌ Erreur conversion audio:', err);
+        }
+
+        try {
+          if (photoFile && photoFile.size > 0) {
+            console.log(`📷 Traitement fichier photo: ${photoFile.name} (${photoFile.size} bytes)`);
+            const buffer = await photoFile.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            attachments.push({
+              type: photoFile.type || 'image/jpeg',
+              name: photoFile.name || `photo-${Date.now()}.jpg`,
+              data: b64
+            });
+            console.log(`✅ Fichier photo converti: ${attachments[attachments.length - 1].name}`);
+          }
+        } catch (err) {
+          console.error('❌ Erreur conversion photo:', err);
+        }
+
+        const sendPayload: any = {
           from: 'Demandes EBF <onboarding@resend.dev>',
           to: emailTo,
           subject: emailSubject,
           html: htmlContent,
           text: messageContent,
+        };
+
+        if (attachments.length > 0) {
+          // Resend accepts attachments as array { type, name, data }
+          sendPayload.attachments = attachments;
+        }
+
+        const resp = await resend.emails.send(sendPayload);
+        console.log('✉️ Email Resend envoyé à', emailTo, 'resp:', resp?.data?.id || resp);
+
+        // Save tracking data to JSON file
+        const trackingData = await loadTrackingData();
+        trackingData[trackingCode] = {
+          code: trackingCode,
+          name: customerName,
+          phone: customerPhone,
+          neighborhood,
+          latitude,
+          longitude,
+          inputType,
+          description,
+          hasAudio: audioFile && audioFile.size > 0,
+          hasPhoto: photoFile && photoFile.size > 0,
+          emailId: resp?.data?.id || null,
+          createdAt: new Date().toISOString(),
+          status: 'submitted'
+        };
+        await saveTrackingData(trackingData);
+        console.log('💾 Code de suivi sauvegardé:', trackingCode);
+
+        return NextResponse.json({
+          success: true,
+          trackingCode,
+          notification: { sent: true, id: resp?.data?.id || null }
         });
-        console.log('✉️ Email Resend envoyé à', emailTo);
       } else {
         console.log('⚠️ RESEND_API_KEY non configurée — email non envoyé.');
+        const trackingCode = 'EBF_' + Date.now().toString(36).toUpperCase().slice(-6);
+        return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: 'RESEND_API_KEY not set' } });
       }
     } catch (emailErr) {
       console.error('Erreur lors de l\'envoi de l\'email Resend:', emailErr);
+      const trackingCode = 'EBF_' + Date.now().toString(36).toUpperCase().slice(-6);
+      return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: String(emailErr) } });
     }
 
     return NextResponse.json({

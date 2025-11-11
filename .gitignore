@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# data (tracking JSON files)
+/data/
+
 # production
 /build
 
