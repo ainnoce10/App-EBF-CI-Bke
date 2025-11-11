@@ -55,9 +55,25 @@ export default function SignalerPage() {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Vérifier le contexte sécurisé (HTTPS ou localhost)
+      const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
+      if (!isSecure) {
+        alert("🔒 Pour accéder au microphone, utilisez HTTPS ou localhost (mode développement). Veuillez héberger l'application en HTTPS ou tester en localhost.");
+        return;
+      }
+
+      console.log("🎤 Demande d'accès au microphone...");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      console.log('✅ Microphone autorisé');
       const mediaRecorder = new MediaRecorder(stream);
-      
+
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -68,7 +84,7 @@ export default function SignalerPage() {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
         const audioUrl = URL.createObjectURL(audioBlob);
         setAudioUrl(audioUrl);
         setAudioBlob(audioBlob);
@@ -76,9 +92,19 @@ export default function SignalerPage() {
 
       mediaRecorder.start();
       setIsRecording(true);
-    } catch (error) {
-      console.error("Error accessing microphone:", error);
-      alert("Impossible d'accéder au microphone. Veuillez vérifier les permissions.");
+    } catch (error: any) {
+      console.error('❌ Erreur accès microphone:', error);
+      let errorMessage = "Impossible d'accéder au microphone. Veuillez vérifier les permissions.";
+
+      if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+        errorMessage = "🔒 Accès au microphone refusé. Cliquez sur l'icône de cadenas dans la barre d'adresse pour autoriser le microphone, puis rechargez la page.";
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage = "🎤 Aucun microphone détecté sur votre appareil.";
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = "⚠️ Le microphone est peut-être utilisé par une autre application.";
+      }
+
+      alert(errorMessage);
     }
   };
 
@@ -168,14 +194,10 @@ export default function SignalerPage() {
     setLocationSuccess(null);
 
     try {
-      // D'abord, vérifier si les permissions sont déjà accordées
-      const permissionStatus = await navigator.permissions.query({ name: 'geolocation' });
-      
-      if (permissionStatus.state === 'denied') {
-        setLocationError("🔒 Vous avez précédemment refusé l'accès à votre position. Veuillez autoriser la géolocalisation dans les paramètres de votre navigateur et réessayer.");
-        setLocationLoading(false);
-        return;
-      }
+      // Note: Ne pas vérifier navigator.permissions.query ici car sur certains
+      // navigateurs cela peut renvoyer 'denied' alors que le navigateur
+      // affichera la boîte de dialogue de permission. Laisser getCurrentPosition
+      // déclencher la demande de permission directement.
 
       // Utiliser une approche avec timeout et options plus précises
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
