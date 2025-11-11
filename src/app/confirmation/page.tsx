@@ -5,15 +5,26 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle, ArrowLeft, Zap, Shield, Star, Clock, Phone } from "lucide-react";
 import Link from "next/link";
-import { TrackingButton } from "@/components/TrackingButton";
+import dynamic from "next/dynamic";
+
+const TrackingButton = dynamic(() => import("@/components/TrackingButton").then(mod => ({ default: mod.TrackingButton })), { ssr: false });
 
 export default function ConfirmationPage() {
   const [isVisible, setIsVisible] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [trackingCode, setTrackingCode] = useState('EBF_XXXX');
 
   useEffect(() => {
     setIsVisible(true);
     setShowConfetti(true);
+    
+    // Get tracking code from URL
+    if (typeof window !== 'undefined') {
+      const code = new URLSearchParams(window.location.search).get('code');
+      if (code) {
+        setTrackingCode(code);
+      }
+    }
     
     // Hide confetti after 3 seconds
     const timer = setTimeout(() => {
@@ -114,7 +125,7 @@ export default function ConfirmationPage() {
                   
                   <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
                     <p className="text-lg font-mono text-center font-bold text-blue-800" id="trackingCode">
-                      {new URLSearchParams(window.location.search).get('code') || 'EBF_XXXX'}
+                      {trackingCode}
                     </p>
                   </div>
 
