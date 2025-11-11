@@ -114,36 +114,43 @@ export async function POST(request: NextRequest) {
     if (audioFile && audioFile.size > 0) messageContent += `\n\nUn message audio a été envoyé.`;
     if (photoFile && photoFile.size > 0) messageContent += `\n\nUne photo a été jointe.`;
 
-    // Try to send email via SMTP (Gmail) if configured, otherwise do nothing but return success.
+    // Try to send email via Resend if API key is configured
     try {
-      const smtpHost = process.env.SMTP_HOST;
-      const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : undefined;
-      const smtpUser = process.env.SMTP_USER;
-      const smtpPass = process.env.SMTP_PASS;
+      const resendApiKey = process.env.RESEND_API_KEY;
       const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
 
-      if (smtpHost && smtpPort && smtpUser && smtpPass) {
-        const nodemailer = await import('nodemailer');
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: { user: smtpUser, pass: smtpPass }
-        });
+      if (resendApiKey) {
+        const { Resend } = await import('resend');
+        const resend = new Resend(resendApiKey);
 
         const emailSubject = `Nouvelle demande - ${customerName}`;
-        await transporter.sendMail({
-          from: smtpUser,
+        const htmlContent = `
+          <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9;">
+            <h2 style="color: #333;">Nouvelle demande d'intervention électrique</h2>
+            <p><strong>Client:</strong> ${customerName}</p>
+            <p><strong>Téléphone:</strong> ${customerPhone}</p>
+            ${neighborhood ? `<p><strong>Quartier:</strong> ${neighborhood}</p>` : ''}
+            ${latitude && longitude ? `<p><strong>Position GPS:</strong> ${latitude}, ${longitude}</p>` : ''}
+            <p><strong>Type:</strong> ${inputType === 'text' ? 'Texte' : 'Audio'}</p>
+            ${inputType === 'text' && description ? `<p><strong>Description:</strong></p><pre>${description}</pre>` : ''}
+            ${audioFile && audioFile.size > 0 ? '<p>📎 Un message audio a été envoyé.</p>' : ''}
+            ${photoFile && photoFile.size > 0 ? '<p>📎 Une photo a été jointe.</p>' : ''}
+          </div>
+        `;
+
+        await resend.emails.send({
+          from: 'Demandes EBF <onboarding@resend.dev>',
           to: emailTo,
           subject: emailSubject,
-          text: messageContent
+          html: htmlContent,
+          text: messageContent,
         });
-        console.log('✉️ Email de notification envoyé à', emailTo);
+        console.log('✉️ Email Resend envoyé à', emailTo);
       } else {
-        console.log('✉️ SMTP non configuré — email non envoyé. Configurez SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS.');
+        console.log('⚠️ RESEND_API_KEY non configurée — email non envoyé.');
       }
     } catch (emailErr) {
-      console.error('Erreur lors de l\'envoi de l\'email:', emailErr);
+      console.error('Erreur lors de l\'envoi de l\'email Resend:', emailErr);
     }
 
     return NextResponse.json({
