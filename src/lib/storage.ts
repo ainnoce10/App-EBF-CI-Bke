@@ -283,7 +283,12 @@ export class StorageService {
 }
 
 // Service de stockage factice pour le développement
-class MockStorageService {
+class MockStorageService extends StorageService {
+  constructor() {
+    // Call parent constructor with dummy values
+    super('https://dummy.supabase.co', 'dummy-key', 'mock-bucket');
+  }
+
   async initializeBucket(): Promise<void> {
     console.log('🪣 Mock: Initialisation du bucket');
   }

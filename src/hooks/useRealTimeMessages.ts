@@ -28,7 +28,7 @@ export function useRealTimeMessages() {
         const data = await response.json()
         
         if (data.messages && Array.isArray(data.messages)) {
-          const currentMessageIds = new Set(data.messages.map((m: any) => m.id))
+          const currentMessageIds = new Set<string>(data.messages.map((m: any) => m.id))
           const newMessages = data.messages.filter((message: any) => !lastProcessedIds.current.has(message.id))
           
           if (newMessages.length > 0) {

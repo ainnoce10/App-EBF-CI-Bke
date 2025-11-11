@@ -3,12 +3,14 @@
 import { create } from 'zustand'
 import type { Message } from '@/types/message'
 
+type MessageStatus = 'UNREAD' | 'READ' | 'ARCHIVED' | 'IN_PROGRESS' | 'COMPLETED' | 'URGENT'
+
 interface MessageStore {
   messages: Message[]
   loading: boolean
   error: string | null
   fetchMessages: () => Promise<void>
-  updateMessageStatus: (id: string, status: string) => Promise<void>
+  updateMessageStatus: (id: string, status: MessageStatus) => Promise<void>
   addMessage: (message: Message) => void
 }
 
@@ -29,7 +31,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     }
   },
 
-  updateMessageStatus: async (id: string, status: string) => {
+  updateMessageStatus: async (id: string, status: MessageStatus) => {
     try {
       const response = await fetch(`/api/messages/${id}`, {
         method: 'PUT',
@@ -41,7 +43,9 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
       // Mettre à jour le message dans le store
       set((state) => ({
         messages: state.messages.map((msg) =>
-          msg.id === id ? { ...msg, status, updatedAt: new Date().toISOString() } : msg
+          msg.id === id 
+            ? { ...msg, status: status as MessageStatus, updatedAt: new Date().toISOString() } 
+            : msg
         )
       }))
     } catch (error) {

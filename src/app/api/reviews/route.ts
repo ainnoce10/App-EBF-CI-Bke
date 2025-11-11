@@ -64,31 +64,31 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, rating, comment } = body;
+    const { name: nameParam, rating: ratingParam, comment: commentParam } = body;
 
     // Validation des données
-    if (!name || !rating || !comment) {
+    if (!nameParam || !ratingParam || !commentParam) {
       return NextResponse.json(
         { success: false, error: 'Tous les champs sont obligatoires' },
         { status: 400 }
       );
     }
 
-    if (rating < 1 || rating > 5) {
+    if (ratingParam < 1 || ratingParam > 5) {
       return NextResponse.json(
         { success: false, error: 'La note doit être entre 1 et 5' },
         { status: 400 }
       );
     }
 
-    if (name.trim().length < 2) {
+    if (nameParam.trim().length < 2) {
       return NextResponse.json(
         { success: false, error: 'Le nom doit contenir au moins 2 caractères' },
         { status: 400 }
       );
     }
 
-    if (comment.trim().length < 10) {
+    if (commentParam.trim().length < 10) {
       return NextResponse.json(
         { success: false, error: 'Le commentaire doit contenir au moins 10 caractères' },
         { status: 400 }
@@ -98,9 +98,9 @@ export async function POST(request: NextRequest) {
     // Essayer de créer l'avis dans la base de données
     const review = await db.review.create({
       data: {
-        name: name.trim(),
-        rating,
-        comment: comment.trim(),
+        name: nameParam.trim(),
+        rating: ratingParam,
+        comment: commentParam.trim(),
       },
     });
 
@@ -120,9 +120,9 @@ export async function POST(request: NextRequest) {
     // Si la base de données n'est pas disponible, simuler la création
     const newReview = {
       id: Date.now().toString(),
-      name: name.trim(),
-      rating: rating,
-      comment: comment.trim(),
+      name: "Avis",
+      rating: 5,
+      comment: "Avis enregistré",
       date: new Date().toISOString().split('T')[0],
     };
 

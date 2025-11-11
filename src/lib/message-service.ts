@@ -279,7 +279,7 @@ export class MessageService {
   }
 
   // Mettre à jour le statut d'un message
-  async updateMessageStatus(messageId: string, status: string) {
+  async updateMessageStatus(messageId: string, status: 'UNREAD' | 'READ' | 'ARCHIVED' | 'IN_PROGRESS' | 'COMPLETED' | 'URGENT') {
     try {
       const message = await db.message.update({
         where: { id: messageId },
@@ -298,7 +298,7 @@ export class MessageService {
   }
 
   // Mettre à jour le statut de plusieurs messages
-  async updateMultipleMessagesStatus(messageIds: string[], status: string) {
+  async updateMultipleMessagesStatus(messageIds: string[], status: 'UNREAD' | 'READ' | 'ARCHIVED' | 'IN_PROGRESS' | 'COMPLETED' | 'URGENT') {
     try {
       await db.message.updateMany({
         where: { id: { in: messageIds } },

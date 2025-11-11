@@ -82,7 +82,7 @@ export function NotificationIcon() {
 
   const handleMarkAsResolved = async (messageId: string) => {
     try {
-      await updateMessageStatus(messageId, 'RESOLVED')
+      await updateMessageStatus(messageId, 'ARCHIVED')
       toast.success('Message marqué comme résolu')
       setSelectedMessage(null)
     } catch (error) {
@@ -253,7 +253,7 @@ export function NotificationIcon() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-xl">
-                  {getTypeIcon(selectedMessage.type)} {selectedMessage.subject}
+                  {getTypeIcon(selectedMessage.type || 'REQUEST')} {selectedMessage.subject}
                 </CardTitle>
                 <Button
                   variant="ghost"
