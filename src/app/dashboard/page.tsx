@@ -1,7 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,17 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
-import { CalendarIcon, Play, Plus, Eye, Search, MessageCircle, Zap, Shield, Star, Clock, Phone, MapPin, Archive, Trash2, CheckCircle, XCircle, User, LogOut } from "lucide-react";
-import Image from "next/image";
+import { Eye, Trash2, Phone, MapPin, Zap } from "lucide-react";
 import Link from "next/link";
-import NotificationSystem from "@/components/notification-system";
-import QuickMessageModal from "@/components/quick-message-modal";
-import { useNotificationSound } from "@/hooks/use-notification-sound";
-import { useAuthStore } from "@/lib/stores/auth-store";
-import { toast } from "sonner";
-import type { AppMessage } from '@/types/message';
 
 interface Request {
   id: string;
@@ -30,8 +22,8 @@ interface Request {
     phone: string;
     neighborhood: string | null;
   };
-  type: 'TEXT' | 'AUDIO';
-  status: 'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  type: "TEXT" | "AUDIO";
+  status: "NEW" | "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   createdAt: string;
   technician?: {
     id: string;
@@ -43,6 +35,8 @@ interface Request {
   scheduledDate?: string;
   notes?: string;
   description?: string;
+  priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  estimatedCost?: number;
 }
 
 interface Technician {
@@ -52,1087 +46,705 @@ interface Technician {
   isActive: boolean;
 }
 
-interface DashboardMessage extends AppMessage {
-  name?: string;
-  email?: string;
-  phone?: string;
-  subject: string;
-  content: string;
-}
+// Données mock - En production, ce serait depuis une base de données
+const MOCK_REQUESTS: Request[] = [
+  {
+    id: "req_001",
+    customer: { name: "Kouame Albert", phone: "+225 01 23 45 67", neighborhood: "Abobo" },
+    type: "TEXT",
+    status: "NEW",
+    createdAt: new Date().toISOString(),
+    description: "Problème d'\''électricité dans le salon",
+    priority: "HIGH",
+  },
+  {
+    id: "req_002",
+    customer: { name: "Traore Fatou", phone: "+225 02 34 56 78", neighborhood: "Cocody" },
+    type: "AUDIO",
+    status: "PLANNED",
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    scheduledDate: new Date(Date.now() + 172800000).toISOString(),
+    priority: "MEDIUM",
+    technician: { id: "1", name: "Kouassi Jean" },
+  },
+  {
+    id: "req_003",
+    customer: { name: "Yao Eugene", phone: "+225 03 45 67 89", neighborhood: "Plateau" },
+    type: "TEXT",
+    status: "IN_PROGRESS",
+    createdAt: new Date(Date.now() - 172800000).toISOString(),
+    description: "Installation de nouveaux circuits électriques",
+    technician: { id: "2", name: "Touré Mohamed" },
+    priority: "MEDIUM",
+    estimatedCost: 500000,
+  },
+];
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { isAdmin } = useAuthStore();
-  const [requests, setRequests] = useState<Request[]>([]);
+  const [requests, setRequests] = useState<Request[]>(MOCK_REQUESTS);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
-  const [messages, setMessages] = useState<DashboardMessage[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<Request[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
-  const [selectedMessage, setSelectedMessage] = useState<DashboardMessage | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [technicianFilter, setTechnicianFilter] = useState<string>("all");
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [technicianFilter, setTechnicianFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [isVisible, setIsVisible] = useState(false);
-  const { playSound } = useNotificationSound();
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
   const [editForm, setEditForm] = useState({
-    status: '',
-    technicianId: '',
-    scheduledDate: '',
-    notes: ''
+    status: "",
+    technicianId: "",
+    scheduledDate: "",
+    notes: "",
+    priority: "",
+    estimatedCost: "",
   });
 
-  // Vérifier l'authentification admin
+  // Charger les techniciens
   useEffect(() => {
-    if (!isAdmin) {
-      router.push('/');
-    }
-  }, [isAdmin, router]);
+    const mockTechnicians: Technician[] = [
+      { id: "1", name: "Kouassi Jean", phone: "+225 01 23 45 67 89", isActive: true },
+      { id: "2", name: "Touré Mohamed", phone: "+225 02 34 56 78 90", isActive: true },
+      { id: "3", name: "Diabaté Marie", phone: "+225 03 45 67 89 01", isActive: true },
+    ];
+    setTechnicians(mockTechnicians);
+  }, []);
 
+  // Filtrer les demandes quand les filtres changent
   useEffect(() => {
-    if (isAdmin) {
-      setIsVisible(true);
-      fetchRequests();
-      fetchTechnicians();
-      fetchMessages();
-      
-      // Rafraîchir automatiquement les demandes toutes les 30 secondes
-      const interval = setInterval(() => {
-        fetchRequests();
-        fetchMessages();
-      }, 30000);
-      
-      return () => clearInterval(interval);
-    }
-  }, [isAdmin]);
+    filterRequestsList();
+  }, [requests, statusFilter, technicianFilter, priorityFilter, searchTerm]);
 
-  useEffect(() => {
-    filterRequests();
-  }, [requests, statusFilter, technicianFilter, searchTerm]);
+  const filterRequestsList = useCallback(() => {
+    let filtered = [...requests];
 
-  // Écouter les nouveaux messages
-  useEffect(() => {
-    const handleNewMessage = (event: any) => {
-      const message = event.detail;
-      setMessages(prev => [message, ...prev]);
-      playSound(); // Jouer le son de notification
-    };
-
-    window.addEventListener('newMessage', handleNewMessage);
-    return () => window.removeEventListener('newMessage', handleNewMessage);
-  }, [playSound]);
-
-  const fetchRequests = async () => {
-    try {
-      const response = await fetch('/api/requests');
-      if (response.ok) {
-        const data = await response.json();
-        setRequests(data);
-      }
-    } catch (error) {
-      console.error('Error fetching requests:', error);
-    }
-  };
-
-  const fetchTechnicians = async () => {
-    try {
-      const response = await fetch('/api/technicians');
-      if (response.ok) {
-        const data = await response.json();
-        setTechnicians(data);
-      } else {
-        // Fallback vers des techniciens mock si l'API échoue
-        const mockTechnicians: Technician[] = [
-          { id: '1', name: 'Kouassi Jean', phone: '+225 01 23 45 67 89', isActive: true },
-          { id: '2', name: 'Touré Mohamed', phone: '+225 02 34 56 78 90', isActive: true },
-          { id: '3', name: 'Diabaté Marie', phone: '+225 03 45 67 89 01', isActive: true },
-        ];
-        setTechnicians(mockTechnicians);
-      }
-    } catch (error) {
-      console.error('Error fetching technicians:', error);
-      // Fallback vers des techniciens mock en cas d'erreur
-      const mockTechnicians: Technician[] = [
-        { id: '1', name: 'Kouassi Jean', phone: '+225 01 23 45 67 89', isActive: true },
-        { id: '2', name: 'Touré Mohamed', phone: '+225 02 34 56 78 90', isActive: true },
-        { id: '3', name: 'Diabaté Marie', phone: '+225 03 45 67 89 01', isActive: true },
-      ];
-      setTechnicians(mockTechnicians);
-    }
-  };
-
-  const fetchMessages = async () => {
-    try {
-      const response = await fetch('/api/messages');
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(data.messages || []);
-      }
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-    }
-  };
-
-  const filterRequests = () => {
-    let filtered = requests;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(req => req.status === statusFilter);
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((req) => req.status === statusFilter);
     }
 
-    if (technicianFilter !== 'all') {
-      filtered = filtered.filter(req => req.technician?.id === technicianFilter);
+    if (technicianFilter !== "all") {
+      filtered = filtered.filter((req) => req.technician?.id === technicianFilter);
+    }
+
+    if (priorityFilter !== "all") {
+      filtered = filtered.filter((req) => req.priority === priorityFilter);
     }
 
     if (searchTerm) {
-      filtered = filtered.filter(req => 
-        req.customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        req.customer.phone.includes(searchTerm) ||
-        req.customer.neighborhood?.toLowerCase().includes(searchTerm.toLowerCase())
+      filtered = filtered.filter(
+        (req) =>
+          req.customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          req.customer.phone.includes(searchTerm) ||
+          req.customer.neighborhood?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
+    // Trier par priorité et date de création
+    filtered.sort((a, b) => {
+      const priorityOrder = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+      const aPriority = priorityOrder[a.priority as keyof typeof priorityOrder] ?? 4;
+      const bPriority = priorityOrder[b.priority as keyof typeof priorityOrder] ?? 4;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
     setFilteredRequests(filtered);
+  }, [requests, statusFilter, technicianFilter, priorityFilter, searchTerm]);
+
+  // Statistiques
+  const stats = {
+    total: requests.length,
+    new: requests.filter((r) => r.status === "NEW").length,
+    planned: requests.filter((r) => r.status === "PLANNED").length,
+    inProgress: requests.filter((r) => r.status === "IN_PROGRESS").length,
+    completed: requests.filter((r) => r.status === "COMPLETED").length,
   };
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'NEW': return 'bg-red-100 text-red-800 border-red-200';
-      case 'PLANNED': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'IN_PROGRESS': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'COMPLETED': return 'bg-green-100 text-green-800 border-green-200';
-      case 'CANCELLED': return 'bg-gray-100 text-gray-800 border-gray-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'NEW': return '🔴';
-      case 'PLANNED': return '🟡';
-      case 'IN_PROGRESS': return '🔵';
-      case 'COMPLETED': return '🟢';
-      case 'CANCELLED': return '⚫';
-      default: return '⚪';
-    }
+    const colors: Record<string, string> = {
+      NEW: "bg-red-100 text-red-800 border-red-200",
+      PLANNED: "bg-yellow-100 text-yellow-800 border-yellow-200",
+      IN_PROGRESS: "bg-blue-100 text-blue-800 border-blue-200",
+      COMPLETED: "bg-green-100 text-green-800 border-green-200",
+      CANCELLED: "bg-gray-100 text-gray-800 border-gray-200",
+    };
+    return colors[status] || "bg-gray-100 text-gray-800 border-gray-200";
   };
 
   const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'NEW': return 'Nouveau';
-      case 'PLANNED': return 'Planifié';
-      case 'IN_PROGRESS': return 'En cours';
-      case 'COMPLETED': return 'Terminé';
-      case 'CANCELLED': return 'Annulé';
-      default: return status;
-    }
+    const labels: Record<string, string> = {
+      NEW: "Nouvelle",
+      PLANNED: "Planifiée",
+      IN_PROGRESS: "En cours",
+      COMPLETED: "Terminée",
+      CANCELLED: "Annulée",
+    };
+    return labels[status] || status;
   };
 
-  const getTypeLabel = (type: string) => {
-    return type === 'TEXT' ? '✉️ Texte' : '🎵 Audio';
+  const getPriorityColor = (priority?: string) => {
+    const colors: Record<string, string> = {
+      URGENT: "text-red-600 bg-red-50",
+      HIGH: "text-orange-600 bg-orange-50",
+      MEDIUM: "text-yellow-600 bg-yellow-50",
+      LOW: "text-green-600 bg-green-50",
+    };
+    return colors[priority || ""] || "text-gray-600 bg-gray-50";
   };
 
-  const openRequestDetail = (request: Request) => {
+  const getPriorityIcon = (priority?: string) => {
+    const icons: Record<string, string> = {
+      URGENT: "🔴",
+      HIGH: "🟠",
+      MEDIUM: "🟡",
+      LOW: "🟢",
+    };
+    return icons[priority || ""] || "◯";
+  };
+
+  const openDetailModal = (request: Request) => {
+    setSelectedRequest(request);
+    setIsDetailModalOpen(true);
+  };
+
+  const openEditModal = (request: Request) => {
     setSelectedRequest(request);
     setEditForm({
       status: request.status,
-      technicianId: request.technician?.id || '',
-      scheduledDate: request.scheduledDate ? new Date(request.scheduledDate).toISOString().split('T')[0] : '',
-      notes: request.notes || ''
+      technicianId: request.technician?.id || "none",
+      scheduledDate: request.scheduledDate || "",
+      notes: request.notes || "",
+      priority: request.priority || "MEDIUM",
+      estimatedCost: request.estimatedCost?.toString() || "",
     });
-    setIsDetailModalOpen(true);
-    setIsEditing(false);
+    setIsEditModalOpen(true);
   };
 
-  const handleSaveRequest = async () => {
+  const saveRequestChanges = () => {
     if (!selectedRequest) return;
 
-    try {
-      const response = await fetch(`/api/requests/${selectedRequest.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(editForm),
-      });
-
-      if (response.ok) {
-        const updatedRequest = await response.json();
-        setSelectedRequest(updatedRequest);
-        await fetchRequests();
-        setIsEditing(false);
-        toast.success('Demande mise à jour avec succès');
-      } else {
-        const error = await response.json();
-        toast.error(error.error || 'Erreur lors de la mise à jour');
-      }
-    } catch (error) {
-      console.error('Error updating request:', error);
-      toast.error('Erreur lors de la mise à jour de la demande');
-    }
-  };
-
-  // Fonction pour changer rapidement le statut d'une demande
-  const handleQuickStatusChange = async (requestId: string, newStatus: string) => {
-    try {
-      const response = await fetch(`/api/requests/${requestId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      if (response.ok) {
-        await fetchRequests();
-        toast.success(`Statut changé en "${getStatusLabel(newStatus)}"`);
-      } else {
-        toast.error('Erreur lors du changement de statut');
-      }
-    } catch (error) {
-      console.error('Error changing status:', error);
-      toast.error('Erreur lors du changement de statut');
-    }
-  };
-
-  // Fonction pour archiver une demande (changer le statut en CANCELLED)
-  const handleArchiveRequest = async (requestId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir archiver cette demande ?')) return;
-    
-    try {
-      const response = await fetch(`/api/requests/${requestId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: 'CANCELLED' }),
-      });
-
-      if (response.ok) {
-        await fetchRequests();
-        toast.success('Demande archivée avec succès');
-        if (selectedRequest?.id === requestId) {
-          setIsDetailModalOpen(false);
-        }
-      } else {
-        toast.error('Erreur lors de l\'archivage');
-      }
-    } catch (error) {
-      console.error('Error archiving request:', error);
-      toast.error('Erreur lors de l\'archivage');
-    }
-  };
-
-  // Fonction pour supprimer une demande
-  const handleDeleteRequest = async (requestId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer définitivement cette demande ? Cette action est irréversible.')) return;
-    
-    try {
-      const response = await fetch(`/api/requests/${requestId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        await fetchRequests();
-        toast.success('Demande supprimée avec succès');
-        if (selectedRequest?.id === requestId) {
-          setIsDetailModalOpen(false);
-        }
-      } else {
-        toast.error('Erreur lors de la suppression');
-      }
-    } catch (error) {
-      console.error('Error deleting request:', error);
-      toast.error('Erreur lors de la suppression');
-    }
-  };
-
-  const playAudio = (audioUrl: string) => {
-    const audio = new Audio(audioUrl);
-    audio.play();
-  };
-
-  const openWhatsAppNotification = (request: Request) => {
-    const message = `🆕 *NOUVELLE DEMANDE EBF BOUAKÉ* 🆕\n\n` +
-      `*📞 Client:* ${request.customer.name || 'Client anonyme'}\n` +
-      `*📱 Téléphone:* ${request.customer.phone}\n` +
-      `*📍 Quartier:* ${request.customer.neighborhood || 'Non spécifié'}\n` +
-      `*📅 Date:* ${format(new Date(request.createdAt), 'dd/MM/yyyy', { locale: fr })}\n` +
-      `*📝 Type:* ${getTypeLabel(request.type)}\n` +
-      `*🔍 Statut:* ${getStatusLabel(request.status)}\n\n` +
-      (request.type === 'TEXT' && request.description ? `*📄 Description:*\n${request.description}\n\n` : '') +
-      (request.type === 'AUDIO' ? `*🎵 Message audio:* Disponible sur le dashboard\n` : '') +
-      (request.transcription ? `*📝 Transcription:*\n${request.transcription}\n\n` : '') +
-      (request.photoUrl ? `*📷 Photo:* Disponible sur le dashboard\n\n` : '') +
-      `*🔗 Gérer la demande:* ${window.location.origin}/dashboard\n\n` +
-      `*💡 Contactez le client rapidement pour planifier le diagnostic gratuit!*`;
-
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/2250708058497?text=${encodedMessage}`;
-    
-    const newWindow = window.open(whatsappUrl, '_blank');
-    
-    if (newWindow) {
-      console.log('✅ Fenêtre WhatsApp ouverte avec succès');
-    } else {
-      console.error('❌ Impossible d\'ouvrir la fenêtre WhatsApp');
-      alert('Veuillez autoriser les popups pour ouvrir WhatsApp automatiquement');
-    }
-  };
-
-  const getRequestStats = () => {
-    const stats = {
-      new: requests.filter(r => r.status === 'NEW').length,
-      planned: requests.filter(r => r.status === 'PLANNED').length,
-      inProgress: requests.filter(r => r.status === 'IN_PROGRESS').length,
-      completed: requests.filter(r => r.status === 'COMPLETED').length,
-      cancelled: requests.filter(r => r.status === 'CANCELLED').length,
-      total: requests.length
+    const updatedRequest: Request = {
+      ...selectedRequest,
+      status: editForm.status as any,
+      scheduledDate: editForm.scheduledDate,
+      notes: editForm.notes,
+      priority: editForm.priority as any,
+      estimatedCost: editForm.estimatedCost ? parseFloat(editForm.estimatedCost) : undefined,
+      technician: editForm.technicianId
+        ? technicians.find((t) => t.id === editForm.technicianId)
+        : selectedRequest.technician,
     };
-    return stats;
+
+    setRequests(requests.map((r) => (r.id === selectedRequest.id ? updatedRequest : r)));
+    setIsEditModalOpen(false);
+    alert("✅ Demande mise à jour avec succès!");
   };
 
-  // Fonctions de gestion des messages
-  const handleMessageClick = (message: AppMessage) => {
-    setSelectedMessage(message as DashboardMessage);
-    setIsMessageModalOpen(true);
-  };
-
-  const handleMarkAsRead = async (messageId: string) => {
-    try {
-      const response = await fetch(`/api/messages/${messageId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: 'READ' }),
-      });
-
-      if (response.ok) {
-        setMessages(prev => 
-          prev.map(msg => 
-            msg.id === messageId ? { ...msg, status: 'READ' } : msg
-          )
-        );
-        fetchMessages(); // Rafraîchir la liste
-      }
-    } catch (error) {
-      console.error('Error marking message as read:', error);
+  const deleteRequest = (id: string) => {
+    if (confirm("❌ Êtes-vous sûr de vouloir supprimer cette demande?")) {
+      setRequests(requests.filter((r) => r.id !== id));
+      alert("✅ Demande supprimée");
     }
   };
 
-  const handleMarkAllAsRead = async () => {
-    try {
-      const unreadMessages = messages.filter(m => m.status === 'UNREAD');
-      for (const message of unreadMessages) {
-        await handleMarkAsRead(message.id);
-      }
-    } catch (error) {
-      console.error('Error marking all messages as read:', error);
+  const updateRequestStatus = (id: string, newStatus: string) => {
+    setRequests(
+      requests.map((r) => (r.id === id ? { ...r, status: newStatus as any } : r))
+    );
+  };
+
+  const assignTechnician = (id: string, technicianId: string) => {
+    // 'none' means unassign technician
+    if (technicianId === 'none' || technicianId === '') {
+      setRequests(
+        requests.map((r) => (r.id === id ? { ...r, technician: undefined } : r))
+      );
+      return;
+    }
+
+    const technician = technicians.find((t) => t.id === technicianId);
+    if (technician) {
+      setRequests(
+        requests.map((r) =>
+          r.id === id
+            ? { ...r, technician: { id: technician.id, name: technician.name } }
+            : r
+        )
+      );
     }
   };
-
-  const handleReplyToMessage = (messageId: string) => {
-    // Rediriger vers la page des messages avec le message sélectionné
-    window.location.href = `/messages?id=${messageId}`;
-  };
-
-  const stats = getRequestStats();
-
-  // Ne pas afficher le contenu si l'utilisateur n'est pas admin
-  if (!isAdmin) {
-    return null;
-  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 overflow-hidden">
-      {/* Animated Background Elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gray-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse animation-delay-2000"></div>
-        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-green-200 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-pulse animation-delay-4000"></div>
-      </div>
-
-      {/* Header */}
-      <header className="relative z-10 w-full bg-white/90 backdrop-blur-md shadow-lg border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-4">
-              <div className="relative w-12 h-12 group">
-                <Image
-                  src="/ebf-logo-new.jpg"
-                  alt="EBF Bouaké Logo"
-                  fill
-                  className="object-contain transform group-hover:scale-110 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-blue-600 rounded-full opacity-0 group-hover:opacity-10 transition-opacity duration-300"></div>
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+      {/* En-tête */}
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md shadow-md border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <Zap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Tableau de bord EBF</h1>
-                <p className="text-sm text-gray-600">Espace de gestion des interventions</p>
+                <h1 className="text-2xl font-bold text-gray-900">Tableau de bord - EBF Bouaké</h1>
+                <p className="text-sm text-gray-600">Gestion des interventions électriques</p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <NotificationSystem
-                messages={messages}
-                onMessageClick={handleMessageClick}
-                onMarkAsRead={handleMarkAsRead}
-                onMarkAllAsRead={handleMarkAllAsRead}
-              />
-              <div className="flex items-center space-x-2 bg-green-100 text-green-800 px-4 py-2 rounded-full text-sm font-medium">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span>En ligne</span>
-              </div>
-              <Link href="/">
-                <Button variant="outline" className="hover:scale-105 transition-transform">
-                  Voir le site client
-                </Button>
-              </Link>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const { logout } = useAuthStore.getState();
-                  logout();
-                  toast.success('Déconnexion réussie');
-                  router.push('/');
-                }}
-                className="hover:scale-105 transition-transform border-red-300 text-red-600 hover:bg-red-50 flex items-center gap-2"
-              >
-                <LogOut className="w-4 h-4" />
-                Déconnexion
-              </Button>
-            </div>
+            <Link href="/">
+              <Button variant="outline">← Retour au site</Button>
+            </Link>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
-        <div className={`mb-8 transform transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
-          <div className="flex items-center justify-between mb-6">
+      {/* Cartes de statistiques */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm text-gray-600">Total</p>
+                  <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
+                </div>
+                <div className="text-3xl">📊</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm text-gray-600">Nouvelles</p>
+                  <p className="text-3xl font-bold text-red-600">{stats.new}</p>
+                </div>
+                <div className="text-3xl">🔴</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm text-gray-600">Planifiées</p>
+                  <p className="text-3xl font-bold text-yellow-600">{stats.planned}</p>
+                </div>
+                <div className="text-3xl">🟡</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm text-gray-600">En cours</p>
+                  <p className="text-3xl font-bold text-blue-600">{stats.inProgress}</p>
+                </div>
+                <div className="text-3xl">🔵</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-sm text-gray-600">Terminées</p>
+                  <p className="text-3xl font-bold text-green-600">{stats.completed}</p>
+                </div>
+                <div className="text-3xl">🟢</div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filtres */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+          <h2 className="text-lg font-semibold mb-4">🔍 Filtres</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <h2 className="text-3xl font-bold text-gray-900">Bienvenue dans votre espace</h2>
-              <p className="text-gray-600 mt-2">Gérez toutes vos interventions électriques depuis un seul endroit</p>
+              <Label className="text-sm">Recherche</Label>
+              <Input
+                placeholder="Nom, téléphone, quartier..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="mt-2"
+              />
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-blue-600">{new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-              <div className="text-sm text-gray-500">Dernière synchronisation: {new Date().toLocaleTimeString('fr-FR')}</div>
+
+            <div>
+              <Label className="text-sm">Statut</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les statuts</SelectItem>
+                  <SelectItem value="NEW">Nouvelles</SelectItem>
+                  <SelectItem value="PLANNED">Planifiées</SelectItem>
+                  <SelectItem value="IN_PROGRESS">En cours</SelectItem>
+                  <SelectItem value="COMPLETED">Terminées</SelectItem>
+                  <SelectItem value="CANCELLED">Annulées</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-sm">Priorité</Label>
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les priorités</SelectItem>
+                  <SelectItem value="URGENT">🔴 Urgent</SelectItem>
+                  <SelectItem value="HIGH">🟠 Haute</SelectItem>
+                  <SelectItem value="MEDIUM">🟡 Moyenne</SelectItem>
+                  <SelectItem value="LOW">🟢 Basse</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-sm">Technicien</Label>
+              <Select value={technicianFilter} onValueChange={setTechnicianFilter}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les techniciens</SelectItem>
+                  {technicians.map((tech) => (
+                    <SelectItem key={tech.id} value={tech.id}>
+                      {tech.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-          {[
-            { title: "Total", value: stats.total, color: "bg-blue-500", icon: "📊", trend: "+12%" },
-            { title: "Nouvelles", value: stats.new, color: "bg-red-500", icon: "🔴", trend: "Urgent" },
-            { title: "Planifiées", value: stats.planned, color: "bg-yellow-500", icon: "🟡", trend: "En attente" },
-            { title: "En cours", value: stats.inProgress, color: "bg-blue-500", icon: "🔵", trend: "Actif" },
-            { title: "Terminées", value: stats.completed, color: "bg-green-500", icon: "🟢", trend: "+8%" }
-          ].map((stat, index) => (
-            <Card 
-              key={index}
-              className={`transform transition-all duration-500 hover:scale-105 hover:shadow-lg border-0 shadow-md ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}
-              style={{ transitionDelay: `${index * 100}ms` }}
-            >
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`w-12 h-12 ${stat.color} rounded-full flex items-center justify-center text-white text-xl`}>
-                    {stat.icon}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500 uppercase tracking-wide">{stat.trend}</div>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-2xl font-bold text-gray-900">{stat.value}</div>
-                  <div className="text-sm font-medium text-gray-600">{stat.title}</div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="bg-gradient-to-r from-red-500 to-red-600 text-white border-0 transform hover:scale-105 transition-all duration-300">
-            <CardContent className="p-6 text-center">
-              <Phone className="w-12 h-12 mx-auto mb-4" />
-              <h3 className="text-xl font-bold mb-2">Urgence 24/7</h3>
-              <p className="text-red-100 mb-4">Appelez directement pour les urgences</p>
-              <a href="tel:+2252731964604" className="inline-block bg-white text-red-600 px-6 py-2 rounded-full font-bold hover:bg-red-50 transition-colors">
-                +225 27 31 96 46 04
-              </a>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-green-500 to-green-600 text-white border-0 transform hover:scale-105 transition-all duration-300">
-            <CardContent className="p-6 text-center">
-              <MessageCircle className="w-12 h-12 mx-auto mb-4" />
-              <h3 className="text-xl font-bold mb-2">Messagerie</h3>
-              <p className="text-green-100 mb-4">Consultez tous vos messages</p>
-              <Link href="/messages" className="inline-block bg-white text-green-600 px-6 py-2 rounded-full font-bold hover:bg-green-50 transition-colors">
-                Voir les messages
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 transform hover:scale-105 transition-all duration-300">
-            <CardContent className="p-6 text-center">
-              <Plus className="w-12 h-12 mx-auto mb-4" />
-              <h3 className="text-xl font-bold mb-2">Nouvelle intervention</h3>
-              <p className="text-blue-100 mb-4">Créez manuellement une demande</p>
-              <Link href="/signaler">
-                <Button className="bg-white text-blue-600 hover:bg-blue-50 font-bold">
-                  Créer une demande
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Filters and Search */}
-        <Card className="mb-6 border-2 border-gray-200 shadow-lg">
-          <CardContent className="p-6">
-            <div className="flex flex-col lg:flex-row gap-4 items-center">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <Input
-                  placeholder="Rechercher par nom, téléphone ou quartier..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-3 border-2 border-gray-200 focus:border-blue-500 transition-colors"
-                />
-              </div>
-              
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center space-x-2">
-                  <Label className="font-medium text-gray-700">Statut:</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-40 border-2 border-gray-200 focus:border-blue-500">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">📋 Tous</SelectItem>
-                      <SelectItem value="NEW">🔴 Nouveau</SelectItem>
-                      <SelectItem value="PLANNED">🟡 Planifié</SelectItem>
-                      <SelectItem value="IN_PROGRESS">🔵 En cours</SelectItem>
-                      <SelectItem value="COMPLETED">🟢 Terminé</SelectItem>
-                      <SelectItem value="CANCELLED">⚫ Annulé</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Label className="font-medium text-gray-700">Technicien:</Label>
-                  <Select value={technicianFilter} onValueChange={setTechnicianFilter}>
-                    <SelectTrigger className="w-40 border-2 border-gray-200 focus:border-blue-500">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">👥 Tous</SelectItem>
-                      {technicians.map(tech => (
-                        <SelectItem key={tech.id} value={tech.id}>
-                          🔧 {tech.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {stats.new > 0 && (
-                <div className="flex items-center space-x-2 bg-red-50 border border-red-200 px-4 py-2 rounded-full">
-                  <MessageCircle className="w-4 h-4 text-red-600 animate-pulse" />
-                  <span className="text-sm font-medium text-red-800">
-                    {stats.new} nouvelle{stats.new > 1 ? 's' : ''} demande{stats.new > 1 ? 's' : ''} urgente{stats.new > 1 ? 's' : ''}
-                  </span>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Requests Table */}
-        <Card className="border-2 border-gray-200 shadow-lg overflow-hidden">
-          <CardHeader className="bg-gradient-to-r from-blue-50 to-blue-100 pb-6">
-            <div className="flex justify-between items-center">
-              <CardTitle className="text-2xl font-bold text-gray-900 flex items-center">
-                <span className="mr-3">📋</span>
-                Liste des demandes clients
-              </CardTitle>
-              <div className="text-sm text-gray-600">
-                {filteredRequests.length} demande{filteredRequests.length > 1 ? 's' : ''} trouvée{filteredRequests.length > 1 ? 's' : ''}
-              </div>
-            </div>
+        {/* Tableau des demandes */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">
+              📋 Liste des demandes ({filteredRequests.length})
+            </CardTitle>
           </CardHeader>
-          
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader className="bg-gray-50">
                   <TableRow>
-                    <TableHead className="font-bold text-gray-700">#</TableHead>
-                    <TableHead className="font-bold text-gray-700">Client</TableHead>
-                    <TableHead className="font-bold text-gray-700">Contact</TableHead>
-                    <TableHead className="font-bold text-gray-700">Quartier</TableHead>
-                    <TableHead className="font-bold text-gray-700">Type</TableHead>
-                    <TableHead className="font-bold text-gray-700">Statut</TableHead>
-                    <TableHead className="font-bold text-gray-700">Date</TableHead>
-                    <TableHead className="font-bold text-gray-700 text-right">Actions</TableHead>
+                    <TableHead>#</TableHead>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Quartier</TableHead>
+                    <TableHead>Priorité</TableHead>
+                    <TableHead>Statut</TableHead>
+                    <TableHead>Technicien</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRequests.map((request, index) => (
-                    <TableRow 
-                      key={request.id} 
-                      className="hover:bg-gray-50 transition-colors border-b border-gray-100"
-                    >
-                      <TableCell className="font-medium text-gray-900">
-                        #{index + 1}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                            <span className="text-blue-600 font-bold">
-                              {request.customer.name ? request.customer.name.charAt(0).toUpperCase() : 'A'}
-                            </span>
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {request.customer.name || 'Client anonyme'}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              ID: {request.id.slice(-6)}
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <Phone className="w-4 h-4 text-gray-400" />
-                            <span className="text-sm font-medium">{request.customer.phone}</span>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openWhatsAppNotification(request)}
-                            className="text-green-600 border-green-600 hover:bg-green-50"
-                          >
-                            <MessageCircle className="w-3 h-3 mr-1" />
-                            WhatsApp
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <MapPin className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm">
-                            {request.customer.neighborhood || 'Non spécifié'}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-medium">
-                          {getTypeLabel(request.type)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={`${getStatusColor(request.status)} font-medium border`}>
-                          <span className="mr-2">{getStatusIcon(request.status)}</span>
-                          {getStatusLabel(request.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium">
-                            {format(new Date(request.createdAt), 'dd/MM/yyyy', { locale: fr })}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            {format(new Date(request.createdAt), 'HH:mm', { locale: fr })}
-                          </div>
-                          {request.scheduledDate && (
-                            <div className="text-xs text-blue-600 font-medium flex items-center gap-1">
-                              <CalendarIcon className="w-3 h-3" />
-                              {format(new Date(request.scheduledDate), 'dd/MM/yyyy', { locale: fr })}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end space-x-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openRequestDetail(request)}
-                            className="hover:scale-105 transition-transform"
-                            title="Voir les détails"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          {request.status === 'NEW' && (
-                            <Button
-                              size="sm"
-                              onClick={() => openWhatsAppNotification(request)}
-                              className="bg-green-600 hover:bg-green-700 text-white hover:scale-105 transition-transform"
-                              title="Contacter via WhatsApp"
-                            >
-                              <MessageCircle className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {request.status !== 'COMPLETED' && request.status !== 'CANCELLED' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleQuickStatusChange(request.id, 'COMPLETED')}
-                              className="text-green-600 border-green-600 hover:bg-green-50 hover:scale-105 transition-transform"
-                              title="Marquer comme terminé"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {request.status !== 'CANCELLED' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleArchiveRequest(request.id)}
-                              className="text-gray-600 border-gray-600 hover:bg-gray-50 hover:scale-105 transition-transform"
-                              title="Archiver"
-                            >
-                              <Archive className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
+                  {filteredRequests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                        Aucune demande trouvée
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    filteredRequests.map((request, index) => (
+                      <TableRow
+                        key={request.id}
+                        className="hover:bg-gray-50 border-b border-gray-100"
+                      >
+                        <TableCell className="font-medium">#{index + 1}</TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium text-gray-900">
+                              {request.customer.name || "Anonyme"}
+                            </div>
+                            <div className="text-xs text-gray-500">ID: {request.id.slice(-6)}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-1 text-sm">
+                            <Phone className="w-4 h-4 text-gray-400" />
+                            <span>{request.customer.phone}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-1 text-sm">
+                            <MapPin className="w-4 h-4 text-gray-400" />
+                            <span>{request.customer.neighborhood || "N/A"}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={getPriorityColor(request.priority)}>
+                            <span className="mr-1">{getPriorityIcon(request.priority)}</span>
+                            {request.priority || "Moyenne"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={request.status}
+                            onValueChange={(value) => updateRequestStatus(request.id, value)}
+                          >
+                            <SelectTrigger className="w-32 h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="NEW">Nouvelle</SelectItem>
+                              <SelectItem value="PLANNED">Planifiée</SelectItem>
+                              <SelectItem value="IN_PROGRESS">En cours</SelectItem>
+                              <SelectItem value="COMPLETED">Terminée</SelectItem>
+                              <SelectItem value="CANCELLED">Annulée</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                              value={request.technician?.id || "none"}
+                              onValueChange={(value) => assignTechnician(request.id, value)}
+                            >
+                            <SelectTrigger className="w-32 h-8">
+                              <SelectValue placeholder="Assigner..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Aucun</SelectItem>
+                              {technicians.map((tech) => (
+                                <SelectItem key={tech.id} value={tech.id}>
+                                  {tech.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          <div>{format(parseISO(request.createdAt), "dd/MM/yyyy", { locale: fr })}</div>
+                          {request.scheduledDate && (
+                            <div className="text-xs text-blue-600 mt-1">
+                              📅 {format(parseISO(request.scheduledDate), "dd/MM", { locale: fr })}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-2">
+                            <Dialog open={isDetailModalOpen && selectedRequest?.id === request.id} onOpenChange={setIsDetailModalOpen}>
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openDetailModal(request)}
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-2xl">
+                                <DialogHeader>
+                                  <DialogTitle>Détails de la demande #{request.id.slice(-6)}</DialogTitle>
+                                </DialogHeader>
+                                {selectedRequest && (
+                                  <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Client</p>
+                                        <p className="text-base">{selectedRequest.customer.name || "Anonyme"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Téléphone</p>
+                                        <p className="text-base">{selectedRequest.customer.phone}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Quartier</p>
+                                        <p className="text-base">{selectedRequest.customer.neighborhood || "N/A"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Type</p>
+                                        <p className="text-base">{selectedRequest.type}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Statut</p>
+                                        <Badge className={getStatusColor(selectedRequest.status)}>
+                                          {getStatusLabel(selectedRequest.status)}
+                                        </Badge>
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Priorité</p>
+                                        <Badge className={getPriorityColor(selectedRequest.priority)}>
+                                          {selectedRequest.priority || "Moyenne"}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                    {selectedRequest.description && (
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Description</p>
+                                        <p className="text-base text-gray-600 bg-gray-50 p-3 rounded">
+                                          {selectedRequest.description}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {selectedRequest.notes && (
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">Notes</p>
+                                        <p className="text-base text-gray-600 bg-gray-50 p-3 rounded">
+                                          {selectedRequest.notes}
+                                        </p>
+                                      </div>
+                                    )}
+                                    <div>
+                                      <Button
+                                        className="w-full"
+                                        onClick={() => {
+                                          setIsDetailModalOpen(false);
+                                          openEditModal(selectedRequest);
+                                        }}
+                                      >
+                                        ✏️ Modifier
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </DialogContent>
+                            </Dialog>
+
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => deleteRequest(request.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>
-            
-            {filteredRequests.length === 0 && (
-              <div className="text-center py-12">
-                <div className="text-6xl mb-4">📭</div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">Aucune demande trouvée</h3>
-                <p className="text-gray-600">Essayez de modifier vos filtres de recherche</p>
-              </div>
-            )}
           </CardContent>
         </Card>
-      </div>
 
-      {/* Request Detail Modal */}
-      <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="bg-gradient-to-r from-blue-50 to-blue-100 -m-6 mb-6 p-6 rounded-t-xl">
-            <DialogTitle className="text-2xl font-bold text-gray-900">
-              Détails de la demande #{selectedRequest?.id.slice(-6)}
-            </DialogTitle>
-          </DialogHeader>
+        {/* Modal d'\''édition */}
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Modifier la demande</DialogTitle>
+            </DialogHeader>
+            {selectedRequest && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Statut</Label>
+                    <Select
+                      value={editForm.status}
+                      onValueChange={(value) => setEditForm({ ...editForm, status: value })}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NEW">Nouvelle</SelectItem>
+                        <SelectItem value="PLANNED">Planifiée</SelectItem>
+                        <SelectItem value="IN_PROGRESS">En cours</SelectItem>
+                        <SelectItem value="COMPLETED">Terminée</SelectItem>
+                        <SelectItem value="CANCELLED">Annulée</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-          {selectedRequest && (
-            <div className="space-y-6">
-              {/* Customer Information */}
-              <div className="grid md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold flex items-center">
-                      <span className="mr-2">👤</span>
-                      Informations client
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Nom</Label>
-                      <p className="text-lg font-semibold">{selectedRequest.customer.name || 'Client anonyme'}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Téléphone</Label>
-                      <p className="text-lg font-semibold">{selectedRequest.customer.phone}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Quartier</Label>
-                      <p className="text-lg font-semibold">{selectedRequest.customer.neighborhood || 'Non spécifié'}</p>
-                    </div>
-                  </CardContent>
-                </Card>
+                  <div>
+                    <Label>Priorité</Label>
+                    <Select
+                      value={editForm.priority}
+                      onValueChange={(value) => setEditForm({ ...editForm, priority: value })}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="LOW">🟢 Basse</SelectItem>
+                        <SelectItem value="MEDIUM">🟡 Moyenne</SelectItem>
+                        <SelectItem value="HIGH">🟠 Haute</SelectItem>
+                        <SelectItem value="URGENT">🔴 Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold flex items-center">
-                      <span className="mr-2">📋</span>
-                      Détails de la demande
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Type</Label>
-                      <p className="text-lg font-semibold">{getTypeLabel(selectedRequest.type)}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Statut</Label>
-                      <Badge className={`${getStatusColor(selectedRequest.status)} font-medium border`}>
-                        <span className="mr-2">{getStatusIcon(selectedRequest.status)}</span>
-                        {getStatusLabel(selectedRequest.status)}
-                      </Badge>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-gray-600">Date de création</Label>
-                      <p className="text-lg font-semibold">
-                        {format(new Date(selectedRequest.createdAt), 'dd/MM/yyyy HH:mm', { locale: fr })}
-                      </p>
-                    </div>
-                    {selectedRequest.scheduledDate && (
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Date programmée</Label>
-                        <p className="text-lg font-semibold text-blue-600">
-                          <CalendarIcon className="w-4 h-4 inline mr-2" />
-                          {format(new Date(selectedRequest.scheduledDate), 'dd/MM/yyyy HH:mm', { locale: fr })}
-                        </p>
-                      </div>
-                    )}
-                    {selectedRequest.technician && (
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Technicien assigné</Label>
-                        <p className="text-lg font-semibold text-blue-600">
-                          <User className="w-4 h-4 inline mr-2" />
-                          {selectedRequest.technician.name}
-                        </p>
-                      </div>
-                    )}
-                    {selectedRequest.notes && (
-                      <div>
-                        <Label className="text-sm font-medium text-gray-600">Notes</Label>
-                        <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded">
-                          {selectedRequest.notes}
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+                  <div>
+                    <Label>Technicien assigné</Label>
+                    <Select
+                      value={editForm.technicianId}
+                      onValueChange={(value) => setEditForm({ ...editForm, technicianId: value })}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Sélectionner..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Aucun</SelectItem>
+                        {technicians.map((tech) => (
+                          <SelectItem key={tech.id} value={tech.id}>
+                            {tech.name} - {tech.phone}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Request Description */}
-              {selectedRequest.description && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold flex items-center">
-                      <span className="mr-2">📝</span>
-                      Description du problème
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-lg">
-                      {selectedRequest.description}
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Audio Section */}
-              {selectedRequest.audioUrl && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold flex items-center">
-                      <span className="mr-2">🎵</span>
-                      Message vocal
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center space-x-4">
-                      <Button
-                        onClick={() => playAudio(selectedRequest.audioUrl!)}
-                        className="bg-green-600 hover:bg-green-700"
-                      >
-                        <Play className="w-4 h-4 mr-2" />
-                        Écouter le message
-                      </Button>
-                      <audio src={selectedRequest.audioUrl} controls className="flex-1" />
-                    </div>
-                    {selectedRequest.transcription && (
-                      <div className="mt-4">
-                        <Label className="text-sm font-medium text-gray-600 mb-2 block">Transcription</Label>
-                        <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">
-                          {selectedRequest.transcription}
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Photo Section */}
-              {selectedRequest.photoUrl && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold flex items-center">
-                      <span className="mr-2">📷</span>
-                      Photo jointe
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <img 
-                      src={selectedRequest.photoUrl} 
-                      alt="Photo du problème" 
-                      className="max-w-full h-auto rounded-lg shadow-md"
+                  <div>
+                    <Label>Date prévue</Label>
+                    <Input
+                      type="date"
+                      value={editForm.scheduledDate ? editForm.scheduledDate.split("T")[0] : ""}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, scheduledDate: e.target.value + "T00:00:00" })
+                      }
+                      className="mt-2"
                     />
-                  </CardContent>
-                </Card>
-              )}
+                  </div>
 
-              {/* Edit Form */}
-              {isEditing ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg font-semibold flex items-center">
-                      <span className="mr-2">✏️</span>
-                      Modifier la demande
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="status">Statut</Label>
-                        <Select value={editForm.status} onValueChange={(value) => setEditForm({...editForm, status: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="NEW">🔴 Nouveau</SelectItem>
-                            <SelectItem value="PLANNED">🟡 Planifié</SelectItem>
-                            <SelectItem value="IN_PROGRESS">🔵 En cours</SelectItem>
-                            <SelectItem value="COMPLETED">🟢 Terminé</SelectItem>
-                            <SelectItem value="CANCELLED">⚫ Annulé</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="technician">Technicien</Label>
-                        <Select value={editForm.technicianId} onValueChange={(value) => setEditForm({...editForm, technicianId: value})}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="">Non assigné</SelectItem>
-                            {technicians.map(tech => (
-                              <SelectItem key={tech.id} value={tech.id}>
-                                🔧 {tech.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="scheduledDate">Date prévue</Label>
-                      <Input
-                        id="scheduledDate"
-                        type="date"
-                        value={editForm.scheduledDate}
-                        onChange={(e) => setEditForm({...editForm, scheduledDate: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="notes">Notes</Label>
-                      <Textarea
-                        id="notes"
-                        value={editForm.notes}
-                        onChange={(e) => setEditForm({...editForm, notes: e.target.value})}
-                        rows={3}
-                      />
-                    </div>
-                    <div className="flex space-x-2">
-                      <Button onClick={handleSaveRequest} className="bg-blue-600 hover:bg-blue-700">
-                        Sauvegarder
-                      </Button>
-                      <Button variant="outline" onClick={() => setIsEditing(false)}>
-                        Annuler
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="flex flex-wrap justify-end gap-2">
-                  <Button
-                    onClick={() => setIsEditing(true)}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    ✏️ Modifier
+                  <div>
+                    <Label>Coût estimé (FCFA)</Label>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={editForm.estimatedCost}
+                      onChange={(e) => setEditForm({ ...editForm, estimatedCost: e.target.value })}
+                      className="mt-2"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Notes internes</Label>
+                  <Textarea
+                    placeholder="Ajouter des notes sur cette demande..."
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                    className="mt-2"
+                    rows={4}
+                  />
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>
+                    Annuler
                   </Button>
-                  <Button
-                    onClick={() => openWhatsAppNotification(selectedRequest)}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <MessageCircle className="w-4 h-4 mr-2" />
-                    Contacter le client
-                  </Button>
-                  {selectedRequest.status !== 'COMPLETED' && (
-                    <Button
-                      onClick={() => handleQuickStatusChange(selectedRequest.id, 'COMPLETED')}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Marquer comme terminé
-                    </Button>
-                  )}
-                  {selectedRequest.status !== 'PLANNED' && selectedRequest.status !== 'COMPLETED' && selectedRequest.status !== 'CANCELLED' && (
-                    <Button
-                      onClick={() => {
-                        setEditForm({...editForm, status: 'PLANNED'});
-                        setIsEditing(true);
-                      }}
-                      className="bg-yellow-600 hover:bg-yellow-700"
-                    >
-                      <CalendarIcon className="w-4 h-4 mr-2" />
-                      Programmer
-                    </Button>
-                  )}
-                  {selectedRequest.status !== 'IN_PROGRESS' && selectedRequest.status !== 'COMPLETED' && selectedRequest.status !== 'CANCELLED' && (
-                    <Button
-                      onClick={() => handleQuickStatusChange(selectedRequest.id, 'IN_PROGRESS')}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Zap className="w-4 h-4 mr-2" />
-                      En cours
-                    </Button>
-                  )}
-                  {selectedRequest.status !== 'CANCELLED' && (
-                    <Button
-                      onClick={() => handleArchiveRequest(selectedRequest.id)}
-                      variant="outline"
-                      className="border-gray-600 text-gray-600 hover:bg-gray-50"
-                    >
-                      <Archive className="w-4 h-4 mr-2" />
-                      Archiver
-                    </Button>
-                  )}
-                  <Button
-                    onClick={() => handleDeleteRequest(selectedRequest.id)}
-                    variant="outline"
-                    className="border-red-600 text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Supprimer
+                  <Button onClick={saveRequestChanges}>
+                    💾 Sauvegarder
                   </Button>
                 </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal rapide pour les messages */}
-      <QuickMessageModal
-        message={selectedMessage}
-        isOpen={isMessageModalOpen}
-        onClose={() => setIsMessageModalOpen(false)}
-        onMarkAsRead={handleMarkAsRead}
-        onReply={handleReplyToMessage}
-      />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
     </main>
   );
 }

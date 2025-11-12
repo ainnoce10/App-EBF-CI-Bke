@@ -284,10 +284,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    return NextResponse.json({
-      success: true,
-      message: 'Endpoint GET non disponible. Utilisez POST pour envoyer une demande.'
-    });
+    // Return empty array as requests are now fetched from other sources
+    // (previously would fetch from database, but DB is currently unreachable)
+    // This endpoint can be extended to fetch from a real data source later
+    return NextResponse.json([]);
   } catch (error) {
     console.error('Error in GET:', error);
     return NextResponse.json(

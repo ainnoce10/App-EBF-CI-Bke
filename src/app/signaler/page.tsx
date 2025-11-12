@@ -1,5 +1,4 @@
-"use client";
-
+﻿"use client";
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,7 +51,6 @@ export default function SignalerPage() {
       }
     };
   }, [audioUrl]);
-
   const startRecording = async () => {
     try {
       console.log("🎤 Demande d'accès au microphone...");
