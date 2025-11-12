@@ -620,6 +620,28 @@ export default function DashboardPage() {
                                         </p>
                                       </div>
                                     )}
+                                    {selectedRequest.photoUrl && (
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">📷 Photo</p>
+                                        <img
+                                          src={selectedRequest.photoUrl}
+                                          alt="Photo de la demande"
+                                          className="w-full max-h-64 object-contain rounded border border-gray-300"
+                                        />
+                                      </div>
+                                    )}
+                                    {selectedRequest.audioUrl && (
+                                      <div>
+                                        <p className="text-sm font-semibold text-gray-700">🎵 Audio</p>
+                                        <audio
+                                          controls
+                                          className="w-full"
+                                          src={selectedRequest.audioUrl}
+                                        >
+                                          Votre navigateur ne supporte pas la lecture audio.
+                                        </audio>
+                                      </div>
+                                    )}
                                     {selectedRequest.notes && (
                                       <div>
                                         <p className="text-sm font-semibold text-gray-700">Notes</p>

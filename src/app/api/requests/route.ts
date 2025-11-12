@@ -8,12 +8,24 @@ import path from 'path';
 // Helper function to load/save tracking data from JSON file
 const TRACKING_DATA_DIR = path.join(process.cwd(), 'data');
 const TRACKING_FILE = path.join(TRACKING_DATA_DIR, 'tracking.json');
+const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
+const AUDIO_DIR = path.join(UPLOADS_DIR, 'audio');
+const PHOTO_DIR = path.join(UPLOADS_DIR, 'photos');
 
 async function ensureTrackingDir() {
   try {
     await fs.mkdir(TRACKING_DATA_DIR, { recursive: true });
   } catch (err) {
     console.error('Erreur création répertoire data:', err);
+  }
+}
+
+async function ensureUploadsDir() {
+  try {
+    await fs.mkdir(AUDIO_DIR, { recursive: true });
+    await fs.mkdir(PHOTO_DIR, { recursive: true });
+  } catch (err) {
+    console.error('Erreur création répertoires uploads:', err);
   }
 }
 
@@ -34,6 +46,28 @@ async function saveTrackingData(data: Record<string, any>) {
     await fs.writeFile(TRACKING_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
     console.error('Erreur sauvegarde tracking.json:', err);
+  }
+}
+
+async function saveUploadedFile(file: File, trackingCode: string, type: 'audio' | 'photo'): Promise<string | null> {
+  try {
+    if (!file || file.size === 0) return null;
+    
+    await ensureUploadsDir();
+    const uploadDir = type === 'audio' ? AUDIO_DIR : PHOTO_DIR;
+    const ext = type === 'audio' ? '.wav' : '.jpg';
+    const filename = `${trackingCode}-${type}${ext}`;
+    const filepath = path.join(uploadDir, filename);
+    
+    const buffer = await file.arrayBuffer();
+    await fs.writeFile(filepath, Buffer.from(buffer));
+    
+    const publicUrl = `/uploads/${type}/${filename}`;
+    console.log(`✅ Fichier ${type} sauvegardé: ${publicUrl}`);
+    return publicUrl;
+  } catch (err) {
+    console.error(`❌ Erreur sauvegarde fichier ${type}:`, err);
+    return null;
   }
 }
 
@@ -229,6 +263,10 @@ export async function POST(request: NextRequest) {
         const resp = await resend.emails.send(sendPayload);
         console.log('✉️ Email Resend envoyé à', emailTo, 'resp:', resp?.data?.id || resp);
 
+        // Save uploaded files to disk
+        const audioUrl = await saveUploadedFile(audioFile, trackingCode, 'audio');
+        const photoUrl = await saveUploadedFile(photoFile, trackingCode, 'photo');
+
         // Save tracking data to JSON file
         const trackingData = await loadTrackingData();
         trackingData[trackingCode] = {
@@ -242,6 +280,8 @@ export async function POST(request: NextRequest) {
           description,
           hasAudio: audioFile && audioFile.size > 0,
           hasPhoto: photoFile && photoFile.size > 0,
+          audioUrl,
+          photoUrl,
           emailId: resp?.data?.id || null,
           createdAt: new Date().toISOString(),
           status: 'submitted'
@@ -258,19 +298,66 @@ export async function POST(request: NextRequest) {
         console.log('⚠️ RESEND_API_KEY non configurée — email non envoyé.');
         const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
         const trackingCode = 'EBF_' + randomDigits;
+        
+        // Save uploaded files even without email
+        const audioUrl = await saveUploadedFile(audioFile, trackingCode, 'audio');
+        const photoUrl = await saveUploadedFile(photoFile, trackingCode, 'photo');
+        
+        // Save tracking data to JSON file
+        const trackingData = await loadTrackingData();
+        trackingData[trackingCode] = {
+          code: trackingCode,
+          name: customerName,
+          phone: customerPhone,
+          neighborhood,
+          latitude,
+          longitude,
+          inputType,
+          description,
+          hasAudio: audioFile && audioFile.size > 0,
+          hasPhoto: photoFile && photoFile.size > 0,
+          audioUrl,
+          photoUrl,
+          emailId: null,
+          createdAt: new Date().toISOString(),
+          status: 'submitted'
+        };
+        await saveTrackingData(trackingData);
+        
         return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: 'RESEND_API_KEY not set' } });
       }
     } catch (emailErr) {
       console.error('Erreur lors de l\'envoi de l\'email Resend:', emailErr);
       const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
       const trackingCode = 'EBF_' + randomDigits;
+      
+      // Save uploaded files even if email fails
+      const audioUrl = await saveUploadedFile(audioFile, trackingCode, 'audio');
+      const photoUrl = await saveUploadedFile(photoFile, trackingCode, 'photo');
+      
+      // Save tracking data to JSON file
+      const trackingData = await loadTrackingData();
+      trackingData[trackingCode] = {
+        code: trackingCode,
+        name: customerName,
+        phone: customerPhone,
+        neighborhood,
+        latitude,
+        longitude,
+        inputType,
+        description,
+        hasAudio: audioFile && audioFile.size > 0,
+        hasPhoto: photoFile && photoFile.size > 0,
+        audioUrl,
+        photoUrl,
+        emailId: null,
+        createdAt: new Date().toISOString(),
+        status: 'submitted'
+      };
+      await saveTrackingData(trackingData);
+      
       return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: String(emailErr) } });
     }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Demande reçue et email de notification envoyé.'
-    });
 
   } catch (error) {
     console.error('Error creating request:', error);

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -8,12 +8,27 @@ import { Label } from '@/components/ui/label'
 import { Search, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
+import { useAuthStore } from '@/lib/stores/auth-store'
 
 export function TrackingButton() {
   const [trackingCode, setTrackingCode] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const router = useRouter()
+  const authStore = useAuthStore()
+
+  // Attendre l'hydratation du store et récupérer isAdmin
+  useEffect(() => {
+    if (authStore._hasHydrated) {
+      setIsAdmin(authStore.isAdmin)
+    } else {
+      const timer = setTimeout(() => {
+        setIsAdmin(authStore.isAdmin)
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [authStore._hasHydrated, authStore.isAdmin])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,59 +61,72 @@ export function TrackingButton() {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex items-center justify-center gap-1 md:gap-2 bg-blue-600 hover:bg-blue-700 text-white border-0 text-[11px] md:text-sm px-2 md:px-4 py-1 md:py-2 h-8 md:h-auto"
-        >
-          <Search className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
-          <span className="hidden lg:inline whitespace-nowrap">Suivre ma demande</span>
-          <span className="hidden sm:inline lg:hidden whitespace-nowrap">Suivre</span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Search className="w-5 h-5" />
-            Suivre votre demande
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="trackingCode">Code de suivi</Label>
-            <Input
-              id="trackingCode"
-              type="text"
-              placeholder="Entrez votre code de suivi (ex: EBF_XXXX)"
-              value={trackingCode}
-              onChange={(e) => setTrackingCode(e.target.value.toUpperCase())}
-              className="mt-1"
-              disabled={isLoading}
-            />
-            <p className="text-sm text-gray-500 mt-2">
-              Le code de suivi vous a été fourni lors de la soumission de votre demande.
-            </p>
-          </div>
+        {isAdmin ? (
           <Button
-            type="submit"
-            className="w-full"
-            disabled={isLoading || !trackingCode.trim()}
+            onClick={() => router.push('/dashboard')}
+            className="flex items-center justify-center gap-1 md:gap-2 bg-green-600 hover:bg-green-700 text-white border-0 text-[11px] md:text-sm px-2 md:px-4 py-1 md:py-2 h-8 md:h-auto"
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Vérification...
-              </>
-            ) : (
-              <>
-                <Search className="w-4 h-4 mr-2" />
-                Suivre
-              </>
-            )}
+            <span className="hidden lg:inline whitespace-nowrap">← Retour sur Gestion</span>
+            <span className="hidden sm:inline lg:hidden whitespace-nowrap">Gestion</span>
           </Button>
-        </form>
-      </DialogContent>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center justify-center gap-1 md:gap-2 bg-blue-600 hover:bg-blue-700 text-white border-0 text-[11px] md:text-sm px-2 md:px-4 py-1 md:py-2 h-8 md:h-auto"
+          >
+            <Search className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />
+            <span className="hidden lg:inline whitespace-nowrap">Suivre ma demande</span>
+            <span className="hidden sm:inline lg:hidden whitespace-nowrap">Suivre</span>
+          </Button>
+        )}
+      </DialogTrigger>
+      {!isAdmin && (
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Search className="w-5 h-5" />
+              Suivre votre demande
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="trackingCode">Code de suivi</Label>
+              <Input
+                id="trackingCode"
+                type="text"
+                placeholder="Entrez votre code de suivi (ex: EBF_XXXX)"
+                value={trackingCode}
+                onChange={(e) => setTrackingCode(e.target.value.toUpperCase())}
+                className="mt-1"
+                disabled={isLoading}
+              />
+              <p className="text-sm text-gray-500 mt-2">
+                Le code de suivi vous a été fourni lors de la soumission de votre demande.
+              </p>
+            </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isLoading || !trackingCode.trim()}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Vérification...
+                </>
+              ) : (
+                <>
+                  <Search className="w-4 h-4 mr-2" />
+                  Suivre
+                </>
+              )}
+            </Button>
+          </form>
+        </DialogContent>
+      )}
     </Dialog>
   )
 }
+
 

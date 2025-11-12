@@ -7,7 +7,7 @@ import { useEffect, useState, Suspense } from "react";
 import { Zap, Shield, Clock, Users, Star, ArrowRight, X } from "lucide-react";
 import SearchParamsHandler from "@/components/SearchParamsHandler";
 import { FooterAdminButton } from "@/components/admin/FooterAdminButton";
-import { TrackingButton } from "@/components/TrackingButton";
+import { UniversalAccessButton } from "@/components/ui/UniversalAccessButton";
 
 
 export default function Home() {
@@ -224,7 +224,7 @@ export default function Home() {
                 <div className="flex items-center justify-between mt-1">
                   <p className="text-sm text-gray-600">Électricité • Bâtiment • Froid</p>
                   <div className="md:hidden ml-3">
-                    <TrackingButton />
+                    <UniversalAccessButton />
                   </div>
                 </div>
               </div>
@@ -239,7 +239,7 @@ export default function Home() {
               <Link href="#footer-contact" className="text-gray-700 hover:text-blue-600 transition-all duration-300 hover:scale-105 transform">
                 Contact
               </Link>
-              <TrackingButton />
+              <UniversalAccessButton />
             </nav>
           </div>
         </div>
@@ -394,8 +394,6 @@ export default function Home() {
                   <Star className="w-4 h-4 ml-2" />
               </button>
             </div>
-
-            {/* Features Grid - After Image */}
             <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4 transform transition-all duration-1000 delay-1000">
               <div className="flex items-center space-x-2 p-3 bg-white rounded-lg shadow-md hover:shadow-lg transform transition-all duration-300 hover:scale-105 hover:-translate-y-1">
                 <Shield className="w-6 h-6 text-green-600 transform transition-all duration-300 hover:scale-110" />
