@@ -284,10 +284,34 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Return empty array as requests are now fetched from other sources
-    // (previously would fetch from database, but DB is currently unreachable)
-    // This endpoint can be extended to fetch from a real data source later
-    return NextResponse.json([]);
+    // Try to load persisted tracking data (from data/tracking.json)
+    const trackingData = await loadTrackingData();
+
+    // Convert trackingData (object keyed by trackingCode) into an array
+    const requestsArray = Object.values(trackingData).map((item: any) => {
+      return {
+        id: item.code || item.trackingCode || (`req_${Math.random().toString(36).slice(2,9)}`),
+        trackingCode: item.code || item.trackingCode,
+        customer: {
+          name: item.name || null,
+          phone: item.phone || '',
+          neighborhood: item.neighborhood || null,
+        },
+        type: item.inputType === 'audio' || item.hasAudio ? 'AUDIO' : 'TEXT',
+        status: (item.status === 'submitted' ? 'NEW' : item.status || 'NEW'),
+        createdAt: item.createdAt || new Date().toISOString(),
+        description: item.description || '',
+        priority: item.priority || 'MEDIUM',
+        notes: item.notes || '',
+        photoUrl: item.photoUrl || undefined,
+        audioUrl: item.audioUrl || undefined,
+        technician: item.technician || undefined,
+        scheduledDate: item.scheduledDate || undefined,
+        estimatedCost: item.estimatedCost || undefined,
+      }
+    })
+
+    return NextResponse.json(requestsArray)
   } catch (error) {
     console.error('Error in GET:', error);
     return NextResponse.json(

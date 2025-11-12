@@ -68,7 +68,11 @@ export function UniversalAccessButton() {
 
   if (isAdmin) {
     return (
-      <div key={authKey}>
+      <div key={authKey} className="flex items-center space-x-3">
+        {/* Bouton de retour vers la gestion (visible quand admin connecté) */}
+        <Button variant="ghost" size="sm" onClick={() => { window.location.href = '/dashboard' }}>
+          Retour sur Gestion
+        </Button>
         <AdminNotificationIcon />
         {showLogin && <AdminLogin onClose={handleCloseLogin} />}
       </div>
