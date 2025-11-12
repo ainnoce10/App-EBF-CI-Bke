@@ -81,7 +81,7 @@ const MOCK_REQUESTS: Request[] = [
 ];
 
 export default function DashboardPage() {
-  const [requests, setRequests] = useState<Request[]>(MOCK_REQUESTS);
+  const [requests, setRequests] = useState<Request[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [filteredRequests, setFilteredRequests] = useState<Request[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
@@ -101,6 +101,8 @@ export default function DashboardPage() {
     estimatedCost: "",
   });
 
+  const [isLoadingRequests, setIsLoadingRequests] = useState<boolean>(true);
+
   // Charger les techniciens
   useEffect(() => {
     const mockTechnicians: Technician[] = [
@@ -109,6 +111,35 @@ export default function DashboardPage() {
       { id: "3", name: "Diabaté Marie", phone: "+225 03 45 67 89 01", isActive: true },
     ];
     setTechnicians(mockTechnicians);
+  }, []);
+
+  // Fetch requests from API on mount
+  useEffect(() => {
+    let mounted = true;
+    const fetchRequests = async () => {
+      setIsLoadingRequests(true);
+      try {
+        const res = await fetch('/api/requests');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (mounted && Array.isArray(data)) {
+          setRequests(data as Request[]);
+        } else if (mounted) {
+          // Fallback to mocks if unexpected response
+          console.warn('Unexpected /api/requests response, using mocks');
+          setRequests(MOCK_REQUESTS);
+        }
+      } catch (err) {
+        console.error('Error fetching /api/requests:', err);
+        if (mounted) setRequests(MOCK_REQUESTS);
+      } finally {
+        if (mounted) setIsLoadingRequests(false);
+      }
+    };
+
+    fetchRequests();
+
+    return () => { mounted = false };
   }, []);
 
   // Filtrer les demandes quand les filtres changent
