@@ -295,14 +295,50 @@ export async function POST(request: NextRequest) {
           notification: { sent: true, id: resp?.data?.id || null }
         });
       } else {
-        console.log('⚠️ RESEND_API_KEY non configurée — email non envoyé.');
+        console.log('⚠️ RESEND_API_KEY non configurée — tentative d\'envoi via SMTP si configurée.');
         const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
         const trackingCode = 'EBF_' + randomDigits;
-        
-        // Save uploaded files even without email
+
+        // Save uploaded files even without Resend
         const audioUrl = await saveUploadedFile(audioFile, trackingCode, 'audio');
         const photoUrl = await saveUploadedFile(photoFile, trackingCode, 'photo');
-        
+
+        // Build attachments from uploaded File objects (if any) for SMTP
+        const attachments: { type: string; name: string; data: string }[] = [];
+        try {
+          if (audioFile && audioFile.size > 0) {
+            const buffer = await audioFile.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            attachments.push({ type: audioFile.type || 'audio/wav', name: audioFile.name || `audio-${Date.now()}.wav`, data: b64 });
+          }
+          if (photoFile && photoFile.size > 0) {
+            const buffer = await photoFile.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            attachments.push({ type: photoFile.type || 'image/jpeg', name: photoFile.name || `photo-${Date.now()}.jpg`, data: b64 });
+          }
+        } catch (err) {
+          console.error('❌ Erreur conversion fichiers pour SMTP fallback:', err);
+        }
+
+        // Try SMTP if configured
+        let smtpResult: any = null;
+        const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
+        const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
+        const htmlContent = `<div><p>Client: ${customerName}</p><p>Téléphone: ${customerPhone}</p>${neighborhood ? `<p>Quartier: ${neighborhood}</p>` : ''}<p>Code: ${trackingCode}</p></div>`;
+        if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+          try {
+            smtpResult = await sendEmailSMTP({
+              to: emailTo,
+              subject: emailSubject,
+              text: messageContent,
+              html: htmlContent,
+              attachments
+            });
+          } catch (err) {
+            console.error('❌ Erreur lors de l\'envoi SMTP fallback:', err);
+          }
+        }
+
         // Save tracking data to JSON file
         const trackingData = await loadTrackingData();
         trackingData[trackingCode] = {
@@ -318,23 +354,58 @@ export async function POST(request: NextRequest) {
           hasPhoto: photoFile && photoFile.size > 0,
           audioUrl,
           photoUrl,
-          emailId: null,
+          emailId: smtpResult?.id || null,
           createdAt: new Date().toISOString(),
           status: 'submitted'
         };
         await saveTrackingData(trackingData);
-        
-        return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: 'RESEND_API_KEY not set' } });
+
+        return NextResponse.json({ success: true, trackingCode, notification: { sent: !!smtpResult?.success, error: smtpResult?.error || 'RESEND_API_KEY not set' } });
       }
     } catch (emailErr) {
       console.error('Erreur lors de l\'envoi de l\'email Resend:', emailErr);
       const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
       const trackingCode = 'EBF_' + randomDigits;
-      
+
       // Save uploaded files even if email fails
       const audioUrl = await saveUploadedFile(audioFile, trackingCode, 'audio');
       const photoUrl = await saveUploadedFile(photoFile, trackingCode, 'photo');
-      
+
+      // Try SMTP fallback if configured
+      const attachments: { type: string; name: string; data: string }[] = [];
+      try {
+        if (audioFile && audioFile.size > 0) {
+          const buffer = await audioFile.arrayBuffer();
+          const b64 = Buffer.from(buffer).toString('base64');
+          attachments.push({ type: audioFile.type || 'audio/wav', name: audioFile.name || `audio-${Date.now()}.wav`, data: b64 });
+        }
+        if (photoFile && photoFile.size > 0) {
+          const buffer = await photoFile.arrayBuffer();
+          const b64 = Buffer.from(buffer).toString('base64');
+          attachments.push({ type: photoFile.type || 'image/jpeg', name: photoFile.name || `photo-${Date.now()}.jpg`, data: b64 });
+        }
+      } catch (err) {
+        console.error('❌ Erreur conversion fichiers pour SMTP fallback après erreur Resend:', err);
+      }
+
+      let smtpResult: any = null;
+      const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
+      const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
+      const htmlContent = `<div><p>Client: ${customerName}</p><p>Téléphone: ${customerPhone}</p>${neighborhood ? `<p>Quartier: ${neighborhood}</p>` : ''}<p>Code: ${trackingCode}</p></div>`;
+      if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          smtpResult = await sendEmailSMTP({
+            to: emailTo,
+            subject: emailSubject,
+            text: messageContent,
+            html: htmlContent,
+            attachments
+          });
+        } catch (err) {
+          console.error('❌ Erreur lors de l\'envoi SMTP fallback après échec Resend:', err);
+        }
+      }
+
       // Save tracking data to JSON file
       const trackingData = await loadTrackingData();
       trackingData[trackingCode] = {
@@ -350,13 +421,13 @@ export async function POST(request: NextRequest) {
         hasPhoto: photoFile && photoFile.size > 0,
         audioUrl,
         photoUrl,
-        emailId: null,
+        emailId: smtpResult?.id || null,
         createdAt: new Date().toISOString(),
         status: 'submitted'
       };
       await saveTrackingData(trackingData);
-      
-      return NextResponse.json({ success: true, trackingCode, notification: { sent: false, error: String(emailErr) } });
+
+      return NextResponse.json({ success: true, trackingCode, notification: { sent: !!smtpResult?.success, error: String(emailErr) } });
     }
 
   } catch (error) {
@@ -405,5 +476,57 @@ export async function GET(request: NextRequest) {
       { error: 'Erreur lors du traitement de la requête' },
       { status: 500 }
     );
+  }
+}
+
+// Fallback SMTP sender using nodemailer (optional). If RESEND_API_KEY is not set,
+// and SMTP env vars are provided, we'll try to send via SMTP (Gmail or other).
+async function sendEmailSMTP(opts: {
+  to: string;
+  from?: string;
+  subject: string;
+  text?: string;
+  html?: string;
+  attachments?: { type: string; name: string; data: string }[];
+}) {
+  try {
+    const nodemailer = await import('nodemailer');
+    const host = process.env.SMTP_HOST;
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const secure = (process.env.SMTP_SECURE === 'true') || port === 465;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+
+    if (!host || !user || !pass) {
+      throw new Error('SMTP configuration missing (SMTP_HOST/SMTP_USER/SMTP_PASS)');
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass }
+    });
+
+    const mailAttachments = (opts.attachments || []).map((a) => ({
+      filename: a.name,
+      content: Buffer.from(a.data, 'base64'),
+      contentType: a.type,
+    }));
+
+    const info = await transporter.sendMail({
+      from: opts.from || process.env.EMAIL_FROM || user,
+      to: opts.to,
+      subject: opts.subject,
+      text: opts.text,
+      html: opts.html,
+      attachments: mailAttachments,
+    });
+
+    console.log('✉️ Email SMTP envoyé, messageId=', info?.messageId);
+    return { success: true, id: info?.messageId || null };
+  } catch (err) {
+    console.error('❌ Erreur envoi SMTP:', err);
+    return { success: false, error: String(err) };
   }
 }
