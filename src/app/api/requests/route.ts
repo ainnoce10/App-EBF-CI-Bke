@@ -46,13 +46,8 @@ async function ensureTrackingDir() {
 }
 
 async function ensureUploadsDir() {
-  try {
-    await fs.mkdir(AUDIO_DIR, { recursive: true });
-    await fs.mkdir(PHOTO_DIR, { recursive: true });
-  } catch (err) {
-    console.warn('⚠️ Erreur création répertoires uploads:', err);
-    // Silently fail - uploads will be attempted in /tmp or other fallback
-  }
+  // Uploads are sent as email attachments, no disk storage needed
+  return;
 }
 
 async function loadTrackingData(): Promise<Record<string, any>> {

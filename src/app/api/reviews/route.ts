@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { promises as fs } from 'fs';
+import path from 'path';
 
-// Données de secours pour quand la base de données n'est pas disponible
+// Données de secours pour quand le fichier n'est pas disponible
 const fallbackReviews = [
   {
     id: "1",
@@ -26,32 +27,62 @@ const fallbackReviews = [
   }
 ];
 
+// Helper to get reviews data path
+const getReviewsPath = () => {
+  try {
+    const cwd = process.cwd();
+    return path.join(cwd, 'data', 'reviews.json');
+  } catch (err) {
+    console.warn('⚠️ process.cwd() unavailable, using fallback path');
+    return '/tmp/data/reviews.json';
+  }
+};
+
+const REVIEWS_FILE = getReviewsPath();
+
+async function ensureReviewsDir() {
+  try {
+    const dir = path.dirname(REVIEWS_FILE);
+    await fs.mkdir(dir, { recursive: true });
+  } catch (err) {
+    console.warn('⚠️ Impossible de créer le répertoire reviews:', err);
+  }
+}
+
+async function loadReviews(): Promise<Record<string, any>> {
+  try {
+    await ensureReviewsDir();
+    const data = await fs.readFile(REVIEWS_FILE, 'utf-8');
+    return JSON.parse(data);
+  } catch (err) {
+    console.log('📝 Fichier reviews.json non trouvé, utilisation des données par défaut');
+    return {};
+  }
+}
+
+async function saveReviews(data: Record<string, any>) {
+  try {
+    await ensureReviewsDir();
+    await fs.writeFile(REVIEWS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    console.log('✅ Avis sauvegardés');
+  } catch (err) {
+    console.warn('⚠️ Impossible de sauvegarder les avis:', err);
+  }
+}
+
 export async function GET() {
   try {
-    // Essayer de se connecter à la base de données
-    const reviews = await db.review.findMany({
-      where: {
-        isActive: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 50,
-    });
+    // Charger les avis depuis le fichier JSON
+    const reviewsData = await loadReviews();
+    const reviews = Object.values(reviewsData).sort((a: any, b: any) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    ).slice(0, 50);
 
-    const formattedReviews = reviews.map(review => ({
-      id: review.id,
-      name: review.name,
-      rating: review.rating,
-      comment: review.comment,
-      date: review.createdAt.toISOString().split('T')[0],
-    }));
-
-    return NextResponse.json({ success: true, reviews: formattedReviews });
+    return NextResponse.json({ success: true, reviews });
   } catch (error) {
     console.error('Erreur lors de la récupération des avis:', error);
     
-    // Si la base de données n'est pas disponible, utiliser les données de secours
+    // Utiliser les données par défaut en cas d'erreur
     console.log('Utilisation des données de secours pour les avis');
     return NextResponse.json({ 
       success: true, 
@@ -95,29 +126,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Essayer de créer l'avis dans la base de données
-    const review = await db.review.create({
-      data: {
-        name: nameParam.trim(),
-        rating: ratingParam,
-        comment: commentParam.trim(),
-      },
-    });
+    // Créer un nouvel avis et le sauvegarder en JSON
+    const reviewId = Date.now().toString();
+    const newReview = {
+      id: reviewId,
+      name: nameParam.trim(),
+      rating: ratingParam,
+      comment: commentParam.trim(),
+      date: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString()
+    };
+
+    // Charger les avis existants et ajouter le nouveau
+    const reviewsData = await loadReviews();
+    reviewsData[reviewId] = newReview;
+    await saveReviews(reviewsData);
+
+    console.log('💾 Avis créé et sauvegardé:', reviewId);
 
     return NextResponse.json({ 
       success: true, 
       review: {
-        id: review.id,
-        name: review.name,
-        rating: review.rating,
-        comment: review.comment,
-        date: review.createdAt.toISOString().split('T')[0],
+        id: newReview.id,
+        name: newReview.name,
+        rating: newReview.rating,
+        comment: newReview.comment,
+        date: newReview.date,
       }
     });
   } catch (error) {
     console.error('Erreur lors de la création de l\'avis:', error);
     
-    // Si la base de données n'est pas disponible, simuler la création
+    // Retourner une réponse de secours
     const newReview = {
       id: Date.now().toString(),
       name: "Avis",
@@ -126,13 +166,13 @@ export async function POST(request: NextRequest) {
       date: new Date().toISOString().split('T')[0],
     };
 
-    console.log('Simulation de création d\'avis (base de données non disponible)');
+    console.log('Simulation de création d\'avis (stockage non disponible)');
     
     return NextResponse.json({ 
       success: true, 
       review: newReview,
       fallback: true,
-      message: "Avis enregistré temporairement. Il sera définitivement sauvegardé lorsque la base de données sera disponible."
+      message: "Avis enregistré temporairement."
     });
   }
 }
