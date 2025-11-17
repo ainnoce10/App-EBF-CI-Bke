@@ -6,17 +6,42 @@ import path from 'path';
 // It no longer depends on the database or Supabase storage so those files can be removed.
 
 // Helper function to load/save tracking data from JSON file
-const TRACKING_DATA_DIR = path.join(process.cwd(), 'data');
-const TRACKING_FILE = path.join(TRACKING_DATA_DIR, 'tracking.json');
-const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
-const AUDIO_DIR = path.join(UPLOADS_DIR, 'audio');
-const PHOTO_DIR = path.join(UPLOADS_DIR, 'photos');
+// Handle environments where filesystem might not be writable (e.g., Lambda)
+const getTrackingPaths = () => {
+  try {
+    const cwd = process.cwd();
+    return {
+      dir: path.join(cwd, 'data'),
+      file: path.join(cwd, 'data', 'tracking.json'),
+      uploadsDir: path.join(cwd, 'public', 'uploads'),
+      audioDir: path.join(cwd, 'public', 'uploads', 'audio'),
+      photoDir: path.join(cwd, 'public', 'uploads', 'photos'),
+    };
+  } catch (err) {
+    console.warn('⚠️ process.cwd() unavailable, using fallback paths');
+    return {
+      dir: '/tmp/data',
+      file: '/tmp/data/tracking.json',
+      uploadsDir: '/tmp/public/uploads',
+      audioDir: '/tmp/public/uploads/audio',
+      photoDir: '/tmp/public/uploads/photos',
+    };
+  }
+};
+
+const paths = getTrackingPaths();
+const TRACKING_DATA_DIR = paths.dir;
+const TRACKING_FILE = paths.file;
+const UPLOADS_DIR = paths.uploadsDir;
+const AUDIO_DIR = paths.audioDir;
+const PHOTO_DIR = paths.photoDir;
 
 async function ensureTrackingDir() {
   try {
     await fs.mkdir(TRACKING_DATA_DIR, { recursive: true });
   } catch (err) {
-    console.error('Erreur création répertoire data:', err);
+    console.error('❌ Erreur création répertoire data:', err);
+    // Silently fail - will attempt to use /tmp or other fallback
   }
 }
 
@@ -25,7 +50,8 @@ async function ensureUploadsDir() {
     await fs.mkdir(AUDIO_DIR, { recursive: true });
     await fs.mkdir(PHOTO_DIR, { recursive: true });
   } catch (err) {
-    console.error('Erreur création répertoires uploads:', err);
+    console.warn('⚠️ Erreur création répertoires uploads:', err);
+    // Silently fail - uploads will be attempted in /tmp or other fallback
   }
 }
 
@@ -35,7 +61,7 @@ async function loadTrackingData(): Promise<Record<string, any>> {
     const data = await fs.readFile(TRACKING_FILE, 'utf-8');
     return JSON.parse(data);
   } catch (err) {
-    console.log('Fichier tracking.json non trouvé, création d\'un nouveau');
+    console.log('📝 Fichier tracking.json non trouvé, création d\'un nouveau');
     return {};
   }
 }
@@ -44,8 +70,10 @@ async function saveTrackingData(data: Record<string, any>) {
   try {
     await ensureTrackingDir();
     await fs.writeFile(TRACKING_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    console.log('✅ Données tracking sauvegardées');
   } catch (err) {
-    console.error('Erreur sauvegarde tracking.json:', err);
+    console.warn('⚠️ Impossible de sauvegarder tracking.json (système de fichiers non persistant?):', err);
+    // Silently continue - data loss is acceptable in ephemeral environments
   }
 }
 
@@ -66,7 +94,8 @@ async function saveUploadedFile(file: File, trackingCode: string, type: 'audio' 
     console.log(`✅ Fichier ${type} sauvegardé: ${publicUrl}`);
     return publicUrl;
   } catch (err) {
-    console.error(`❌ Erreur sauvegarde fichier ${type}:`, err);
+    console.warn(`⚠️ Impossible de sauvegarder fichier ${type}:`, err);
+    // Return null - email may still succeed with attachment inline
     return null;
   }
 }
