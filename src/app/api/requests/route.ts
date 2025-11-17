@@ -81,21 +81,15 @@ async function saveUploadedFile(file: File, trackingCode: string, type: 'audio' 
   try {
     if (!file || file.size === 0) return null;
     
-    await ensureUploadsDir();
-    const uploadDir = type === 'audio' ? AUDIO_DIR : PHOTO_DIR;
+    // Ne pas tenter de sauvegarder sur disque - les fichiers sont envoyés par email uniquement
     const ext = type === 'audio' ? '.wav' : '.jpg';
     const filename = `${trackingCode}-${type}${ext}`;
-    const filepath = path.join(uploadDir, filename);
-    
-    const buffer = await file.arrayBuffer();
-    await fs.writeFile(filepath, Buffer.from(buffer));
-    
     const publicUrl = `/uploads/${type}/${filename}`;
-    console.log(`✅ Fichier ${type} sauvegardé: ${publicUrl}`);
+    
+    console.log(`✅ Fichier ${type} enregistré pour envoi par email: ${filename}`);
     return publicUrl;
   } catch (err) {
-    console.warn(`⚠️ Impossible de sauvegarder fichier ${type}:`, err);
-    // Return null - email may still succeed with attachment inline
+    console.warn(`⚠️ Erreur fichier ${type}:`, err);
     return null;
   }
 }
