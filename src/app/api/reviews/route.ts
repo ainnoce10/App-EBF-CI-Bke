@@ -28,24 +28,37 @@ const fallbackReviews = [
 ];
 
 // Helper to get reviews data path
+let REVIEWS_FILE: string;
+let REVIEWS_PATH_FALLBACK = false;
+
 const getReviewsPath = () => {
   try {
     const cwd = process.cwd();
-    return path.join(cwd, 'data', 'reviews.json');
+    const primaryPath = path.join(cwd, 'data', 'reviews.json');
+    return primaryPath;
   } catch (err) {
     console.warn('⚠️ process.cwd() unavailable, using fallback path');
+    REVIEWS_PATH_FALLBACK = true;
     return '/tmp/data/reviews.json';
   }
 };
 
-const REVIEWS_FILE = getReviewsPath();
+REVIEWS_FILE = getReviewsPath();
 
 async function ensureReviewsDir() {
   try {
     const dir = path.dirname(REVIEWS_FILE);
     await fs.mkdir(dir, { recursive: true });
   } catch (err) {
-    console.warn('⚠️ Impossible de créer le répertoire reviews:', err);
+    // If primary path fails, switch to /tmp
+    console.warn('⚠️ Impossible de créer le répertoire reviews sur le chemin principal, utilisation de /tmp');
+    REVIEWS_PATH_FALLBACK = true;
+    REVIEWS_FILE = '/tmp/data/reviews.json';
+    try {
+      await fs.mkdir(path.dirname(REVIEWS_FILE), { recursive: true });
+    } catch (tmpErr) {
+      console.warn('⚠️ /tmp non disponible, les avis seront temporaires uniquement');
+    }
   }
 }
 
@@ -66,7 +79,8 @@ async function saveReviews(data: Record<string, any>) {
     await fs.writeFile(REVIEWS_FILE, JSON.stringify(data, null, 2), 'utf-8');
     console.log('✅ Avis sauvegardés');
   } catch (err) {
-    console.warn('⚠️ Impossible de sauvegarder les avis:', err);
+    console.warn('⚠️ Impossible de sauvegarder les avis (système de fichiers non persistant?):', err);
+    // Silently continue - data loss is acceptable in ephemeral environments
   }
 }
 

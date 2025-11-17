@@ -259,7 +259,11 @@ export default function SignalerPage() {
       return;
     }
 
-    // Note: Audio est optionnel — on peut soumettre sans enregistrement audio
+    // Valider que l'audio a bien été enregistré si mode audio
+    if (inputType === "audio" && !audioBlob) {
+      setFormError("Veuillez enregistrer un message vocal ou passer en mode texte");
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -274,13 +278,16 @@ export default function SignalerPage() {
       
       if (inputType === "text") {
         formData.append("description", description);
-      } else if (audioBlob) {
+      } else if (inputType === "audio" && audioBlob) {
+        // Ensure audio blob is properly added
+        console.log('🎵 Ajout du message audio:', audioBlob.type, audioBlob.size, 'bytes');
         formData.append("audio", audioBlob, "recording.wav");
       }
 
       // Ajouter la photo si elle existe
       const photoInput = document.getElementById('photo') as HTMLInputElement;
       if (photoInput && photoInput.files && photoInput.files[0]) {
+        console.log('📷 Ajout de la photo:', photoInput.files[0].name);
         formData.append("photo", photoInput.files[0]);
       }
 

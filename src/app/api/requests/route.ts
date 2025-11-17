@@ -7,6 +7,12 @@ import path from 'path';
 
 // Helper function to load/save tracking data from JSON file
 // Handle environments where filesystem might not be writable (e.g., Lambda)
+let TRACKING_DATA_DIR: string;
+let TRACKING_FILE: string;
+let UPLOADS_DIR: string;
+let AUDIO_DIR: string;
+let PHOTO_DIR: string;
+
 const getTrackingPaths = () => {
   try {
     const cwd = process.cwd();
@@ -29,19 +35,30 @@ const getTrackingPaths = () => {
   }
 };
 
-const paths = getTrackingPaths();
-const TRACKING_DATA_DIR = paths.dir;
-const TRACKING_FILE = paths.file;
-const UPLOADS_DIR = paths.uploadsDir;
-const AUDIO_DIR = paths.audioDir;
-const PHOTO_DIR = paths.photoDir;
+const initPaths = () => {
+  const paths = getTrackingPaths();
+  TRACKING_DATA_DIR = paths.dir;
+  TRACKING_FILE = paths.file;
+  UPLOADS_DIR = paths.uploadsDir;
+  AUDIO_DIR = paths.audioDir;
+  PHOTO_DIR = paths.photoDir;
+};
+
+initPaths();
 
 async function ensureTrackingDir() {
   try {
     await fs.mkdir(TRACKING_DATA_DIR, { recursive: true });
   } catch (err) {
-    console.error('❌ Erreur création répertoire data:', err);
-    // Silently fail - will attempt to use /tmp or other fallback
+    // If primary path fails, switch to /tmp
+    console.warn('⚠️ Impossible de créer le répertoire sur le chemin principal, utilisation de /tmp');
+    TRACKING_DATA_DIR = '/tmp/data';
+    TRACKING_FILE = '/tmp/data/tracking.json';
+    try {
+      await fs.mkdir(TRACKING_DATA_DIR, { recursive: true });
+    } catch (tmpErr) {
+      console.warn('⚠️ /tmp non disponible, les données de suivi seront temporaires uniquement');
+    }
   }
 }
 
@@ -206,9 +223,96 @@ export async function POST(request: NextRequest) {
       const resendApiKey = process.env.RESEND_API_KEY;
       const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
 
+      console.log('🔍 Configuration email:', {
+        hasResendKey: !!resendApiKey,
+        emailTo,
+        hasSMTPHost: !!process.env.SMTP_HOST,
+        hasSMTPUser: !!process.env.SMTP_USER,
+        hasSMTPPass: !!process.env.SMTP_PASS
+      });
+
       // Generate a tracking code to return to the client: EBF_XXXX (4 chiffres aléatoires)
       const randomDigits = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
       const trackingCode = 'EBF_' + randomDigits;
+
+      // Check if we have attachments
+      const hasAttachments = (audioFile && audioFile.size > 0) || (photoFile && photoFile.size > 0);
+
+      // If we have attachments and SMTP is configured, use SMTP directly (more reliable for files)
+      if (hasAttachments && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        console.log('📧 Fichiers détectés - utilisation de SMTP pour meilleure fiabilité');
+        
+        // Build attachments from uploaded File objects (if any) for SMTP
+        const attachments: { type: string; name: string; data: string }[] = [];
+        try {
+          if (audioFile && audioFile.size > 0) {
+            const buffer = await audioFile.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            attachments.push({ type: audioFile.type || 'audio/wav', name: audioFile.name || `audio-${Date.now()}.wav`, data: b64 });
+          }
+          if (photoFile && photoFile.size > 0) {
+            const buffer = await photoFile.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            attachments.push({ type: photoFile.type || 'image/jpeg', name: photoFile.name || `photo-${Date.now()}.jpg`, data: b64 });
+          }
+        } catch (err) {
+          console.error('❌ Erreur conversion fichiers:', err);
+        }
+
+        const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
+        const htmlContent = `
+          <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f9f9f9;">
+            <h2 style="color: #333;">Nouvelle demande d'intervention électrique</h2>
+            <p><strong>Client:</strong> ${customerName}</p>
+            <p><strong>Téléphone:</strong> ${customerPhone}</p>
+            ${neighborhood ? `<p><strong>Quartier:</strong> ${neighborhood}</p>` : ''}
+            ${latitude && longitude ? `<p><strong>Position GPS:</strong> ${latitude}, ${longitude}</p>` : ''}
+            <p><strong>Type:</strong> ${inputType === 'text' ? 'Texte' : 'Audio'}</p>
+            ${inputType === 'text' && description ? `<p><strong>Description:</strong></p><pre>${description}</pre>` : ''}
+            <p><strong>Code de suivi:</strong> <code>${trackingCode}</code></p>
+            ${audioFile && audioFile.size > 0 ? '<p>📎 Un message audio a été envoyé.</p>' : ''}
+            ${photoFile && photoFile.size > 0 ? '<p>📎 Une photo a été jointe.</p>' : ''}
+          </div>
+        `;
+
+        const smtpResult = await sendEmailSMTP({
+          to: emailTo,
+          subject: emailSubject,
+          text: messageContent,
+          html: htmlContent,
+          attachments
+        });
+
+        if (smtpResult.success) {
+          // Save tracking data to JSON file
+          const trackingData = await loadTrackingData();
+          trackingData[trackingCode] = {
+            code: trackingCode,
+            name: customerName,
+            phone: customerPhone,
+            neighborhood,
+            latitude,
+            longitude,
+            inputType,
+            description,
+            hasAudio: audioFile && audioFile.size > 0,
+            hasPhoto: photoFile && photoFile.size > 0,
+            audioUrl: null,
+            photoUrl: null,
+            emailId: smtpResult.id || null,
+            createdAt: new Date().toISOString(),
+            status: 'submitted'
+          };
+          await saveTrackingData(trackingData);
+          console.log('💾 Code de suivi sauvegardé:', trackingCode);
+
+          return NextResponse.json({
+            success: true,
+            trackingCode,
+            notification: { sent: true, id: smtpResult.id || null }
+          });
+        }
+      }
 
       if (resendApiKey) {
         const { Resend } = await import('resend');
