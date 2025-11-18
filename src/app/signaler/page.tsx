@@ -37,7 +37,9 @@ export default function SignalerPage() {
   const [formError, setFormError] = useState<string | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const textSectionRef = useRef<HTMLDivElement>(null);
   const audioSectionRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -67,6 +69,7 @@ export default function SignalerPage() {
       try {
         if (!apiKey) {
           console.warn('No Google Maps API key (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) found. Map picker may not work.');
+          setMapLoadError("Clé Google Maps manquante. Veuillez contacter l'administrateur.");
           return;
         }
         await loadGoogleMaps(apiKey);
@@ -96,6 +99,7 @@ export default function SignalerPage() {
         });
       } catch (e) {
         console.error('Erreur initialisation Google Maps:', e);
+        setMapLoadError('Impossible de charger Google Maps. Vérifiez la clé ou la connexion.');
       }
     };
 
@@ -126,6 +130,8 @@ export default function SignalerPage() {
       console.log('✅ Microphone autorisé, enregistrement en cours...');
       const mediaRecorder = new MediaRecorder(stream);
 
+      // store stream separately so we can stop tracks reliably later
+      mediaStreamRef.current = stream;
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -161,6 +167,7 @@ export default function SignalerPage() {
       // attach timer to recorder for cleanup
       // @ts-ignore
       mediaRecorderRef.current._stopTimer = stopTimer;
+      setFormError(null);
     } catch (error: any) {
       console.error('❌ Erreur accès microphone:', error);
       
@@ -176,6 +183,7 @@ export default function SignalerPage() {
       }
 
       console.log('ℹ️', errorMessage);
+      setFormError(errorMessage);
       // Afficher l'erreur dans la console, pas d'alert bloquante
     }
   };
@@ -204,7 +212,14 @@ export default function SignalerPage() {
         } catch(e) {}
       }
       mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      // stop the original media stream tracks if we have them
+      try {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+      } catch (e) {
+        console.warn('Erreur arrêt des pistes média:', e);
+      }
       setIsRecording(false);
     }
   };
@@ -261,9 +276,9 @@ export default function SignalerPage() {
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith("image/")) {
-      // Vérifier la taille du fichier (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert("❌ L'image est trop volumineuse. La taille maximale est de 5MB.");
+      // Vérifier la taille du fichier (max 3MB)
+      if (file.size > 3 * 1024 * 1024) {
+        alert("❌ L'image est trop volumineuse. La taille maximale est de 3MB.");
         return;
       }
       
@@ -426,7 +441,16 @@ export default function SignalerPage() {
           }
         }
       } else {
-        const errorData = await response.json();
+        let errorData: any = null;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          try {
+            errorData = { error: await response.text() };
+          } catch (e2) {
+            errorData = { error: 'Erreur serveur inconnue' };
+          }
+        }
         console.error('❌ Erreur API:', errorData);
         setFormError(errorData.error || 'Une erreur est survenue. Veuillez réessayer.');
       }
@@ -774,14 +798,7 @@ export default function SignalerPage() {
                     </Button>
                     
                     {/* Instructions */}
-                    <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <p className="text-sm text-blue-800 font-medium mb-1">💡 Pour ajouter votre position :</p>
-                      <ul className="text-xs text-blue-700 space-y-1">
-                        <li>• Cliquez sur le bouton ci-dessus</li>
-                        <li>• Autorisez l'accès à votre position lorsque demandé</li>
-                        <li>• Si vous avez déjà refusé, cliquez sur 🔒 dans la barre d'adresse pour modifier les permissions</li>
-                      </ul>
-                    </div>
+                    {/* Guide removed per request - map modal provides guidance now */}
                     
                     {locationSuccess && (
                       <p className="text-sm text-green-600 mt-2 p-3 bg-green-50 rounded-lg">{locationSuccess}</p>
@@ -831,8 +848,17 @@ export default function SignalerPage() {
                               <button type="button" onClick={() => setShowMapModal(false)} className="text-sm text-gray-600 hover:text-gray-900">Annuler</button>
                             </div>
                           </div>
-                          <div id="map-picker" style={{ height: 420 }}>
-                            {/* Map will mount here */}
+                          <div>
+                            {mapLoadError ? (
+                              <div className="p-6 text-center text-sm text-red-600">
+                                <p>{mapLoadError}</p>
+                                <p className="mt-2 text-xs text-gray-500">Vous pouvez toujours saisir manuellement votre position si nécessaire.</p>
+                              </div>
+                            ) : (
+                              <div id="map-picker" style={{ height: 420 }}>
+                                {/* Map will mount here */}
+                              </div>
+                            )}
                           </div>
                           <div className="p-3 flex items-center justify-end space-x-2 border-t">
                             <button

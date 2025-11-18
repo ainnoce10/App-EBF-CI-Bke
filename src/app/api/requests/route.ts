@@ -147,8 +147,14 @@ export async function POST(request: NextRequest) {
 
   try {
     console.log('📥 Début de la réception de la demande...');
-    
-    const formData = await request.formData();
+
+    let formData: any;
+    try {
+      formData = await request.formData();
+    } catch (err) {
+      console.error('❌ Impossible de parser le FormData (fichier trop volumineux ou invalide):', err);
+      return NextResponse.json({ error: 'Fichier trop volumineux ou invalide. Réduisez la taille de l\'image et réessayez.' }, { status: 413 });
+    }
     console.log('📋 FormData reçu:', {
       name: formData.get('name'),
       phone: formData.get('phone'),
