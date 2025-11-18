@@ -25,10 +25,14 @@ export default function SignalerPage() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationSuccess, setLocationSuccess] = useState<string | null>(null);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [chosenLatLng, setChosenLatLng] = useState<{ lat: number; lng: number } | null>(null);
   const [showLocationToast, setShowLocationToast] = useState(false);
   const [position, setPosition] = useState("");
   const [mapsLink, setMapsLink] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isAutoSendingAudio, setIsAutoSendingAudio] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   
@@ -42,6 +46,63 @@ export default function SignalerPage() {
   useEffect(() => {
     setIsVisible(true);
   }, []);
+
+  // Initialize Google Maps picker when modal opens
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const loadGoogleMaps = (key: string) => new Promise<void>((resolve, reject) => {
+      // @ts-ignore
+      if (window.google && window.google.maps) return resolve();
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${key}`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = (e) => reject(e);
+      document.head.appendChild(script);
+    });
+
+    const initMap = async () => {
+      if (!mapCenter) return;
+      try {
+        if (!apiKey) {
+          console.warn('No Google Maps API key (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) found. Map picker may not work.');
+          return;
+        }
+        await loadGoogleMaps(apiKey);
+        // @ts-ignore
+        const google = window.google;
+        const el = document.getElementById('map-picker');
+        if (!el) return;
+        // clear previous
+        el.innerHTML = '';
+        // @ts-ignore
+        const map = new google.maps.Map(el, { center: { lat: mapCenter.lat, lng: mapCenter.lng }, zoom: 16 });
+        // @ts-ignore
+        const marker = new google.maps.Marker({ position: { lat: mapCenter.lat, lng: mapCenter.lng }, map, draggable: true });
+        // store marker pos globally for confirm button to read
+        // @ts-ignore
+        window.__gm_marker_pos = { lat: mapCenter.lat, lng: mapCenter.lng };
+        marker.addListener('dragend', () => {
+          // @ts-ignore
+          const pos = marker.getPosition();
+          // @ts-ignore
+          window.__gm_marker_pos = { lat: pos.lat(), lng: pos.lng() };
+        });
+        map.addListener('click', (e: any) => {
+          marker.setPosition(e.latLng);
+          // @ts-ignore
+          window.__gm_marker_pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+        });
+      } catch (e) {
+        console.error('Erreur initialisation Google Maps:', e);
+      }
+    };
+
+    if (showMapModal && mapCenter) {
+      initMap();
+    }
+  }, [showMapModal, mapCenter]);
 
   // Initialize audio recording
   useEffect(() => {
@@ -79,10 +140,27 @@ export default function SignalerPage() {
         const audioUrl = URL.createObjectURL(audioBlob);
         setAudioUrl(audioUrl);
         setAudioBlob(audioBlob);
+        // send automatically after recording stops
+        try {
+          // fire-and-forget
+          sendAudioDirect(audioBlob);
+        } catch (e) {
+          console.error('Erreur envoi audio auto:', e);
+        }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
+      // auto-stop after 2 minutes
+      const maxMs = 2 * 60 * 1000;
+      const stopTimer = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+      }, maxMs);
+      // attach timer to recorder for cleanup
+      // @ts-ignore
+      mediaRecorderRef.current._stopTimer = stopTimer;
     } catch (error: any) {
       console.error('❌ Erreur accès microphone:', error);
       
@@ -102,8 +180,29 @@ export default function SignalerPage() {
     }
   };
 
+  // Confirm position chosen on the map
+  const confirmMapPosition = (lat: number, lng: number) => {
+    const coordinates = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    const googleMapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
+    setPosition(coordinates);
+    setMapsLink(googleMapsLink);
+    setChosenLatLng({ lat, lng });
+    setShowMapModal(false);
+    setLocationSuccess('✅ Position sélectionnée');
+    setShowLocationToast(true);
+    setTimeout(() => setShowLocationToast(false), 3000);
+  };
+
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      // clear auto-stop timer if present
+      // @ts-ignore
+      if (mediaRecorderRef.current._stopTimer) {
+        try { 
+          // @ts-ignore
+          clearTimeout(mediaRecorderRef.current._stopTimer);
+        } catch(e) {}
+      }
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
       setIsRecording(false);
@@ -123,6 +222,39 @@ export default function SignalerPage() {
       const url = URL.createObjectURL(file);
       setAudioUrl(url);
       setAudioBlob(file);
+    }
+  };
+
+  // Send audio immediately after recording stopped (audioBlob must be set)
+  const sendAudioDirect = async (blob: Blob) => {
+    try {
+      setIsAutoSendingAudio(true);
+      const formData = new FormData();
+      // minimal metadata - allow anonymous audio
+      formData.append('name', 'Message vocal');
+      formData.append('phone', '');
+      formData.append('neighborhood', '');
+      formData.append('position', '');
+      formData.append('inputType', 'audio');
+      formData.append('audio', blob, `recording-${Date.now()}.wav`);
+
+      const res = await fetch('/api/requests', { method: 'POST', body: formData });
+      const json = await res.json().catch(() => null);
+      if (res.ok) {
+        console.log('✅ Enregistrement vocal envoyé automatiquement', json);
+        // show feedback
+        setLocationSuccess('✅ Message vocal envoyé au support.');
+        setShowLocationToast(true);
+        setTimeout(() => setShowLocationToast(false), 3000);
+      } else {
+        console.error('❌ Envoi vocal automatique échoué', json);
+        setFormError("L'envoi automatique du message vocal a échoué.");
+      }
+    } catch (err) {
+      console.error('❌ Erreur envoi vocal automatique', err);
+      setFormError("Erreur lors de l'envoi du message vocal.");
+    } finally {
+      setIsAutoSendingAudio(false);
     }
   };
 
@@ -178,58 +310,28 @@ export default function SignalerPage() {
   };
 
   const handleGeolocation = async () => {
-    if (!navigator.geolocation) {
-      setLocationError("Géolocalisation non supportée");
-      return;
-    }
-
-    setLocationLoading(true);
+    // Open the interactive map modal to let user pick a position
     setLocationError(null);
     setLocationSuccess(null);
+    setShowMapModal(true);
 
-    try {
-      // Demander simplement la position sans pré-vérifier les permissions
-      // Laisser le navigateur gérer la demande de permission
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => resolve(pos),
-          (error) => reject(error),
-          {
-            enableHighAccuracy: false, // Désactiver high accuracy pour plus de compatibilité
-            timeout: 10000,
-            maximumAge: 0
-          }
-        );
-      });
-
-      const { latitude, longitude } = position.coords;
-      const coordinates = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-      const googleMapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
-      
-      setPosition(coordinates);
-      setMapsLink(googleMapsLink);
-      setLocationSuccess("✅ Position ajoutée avec succès !");
-      setShowLocationToast(true);
-      setLocationLoading(false);
-      
-      // Cacher le toast après 3 secondes
-      setTimeout(() => {
-        setShowLocationToast(false);
-      }, 3000);
-      
-    } catch (error: any) {
-      setLocationLoading(false);
-      
-      // Messages d'erreur simples (sans demander manipulation)
-      if (error.code === error.PERMISSION_DENIED) {
-        setLocationError("⏸️ Position non autorisée. C'est optionnel — vous pouvez continuer sans.");
-      } else if (error.code === error.POSITION_UNAVAILABLE) {
-        setLocationError("📡 Position indisponible. C'est normal à l'intérieur — vous pouvez continuer.");
-      } else if (error.code === error.TIMEOUT) {
-        setLocationError("⏱️ Position introuvable. Essayez dans quelques secondes.");
-      } else {
-        setLocationError("Position non disponible. Ce n'est pas obligatoire.");
-      }
+    // Try to center map on user's location if available
+    if (navigator.geolocation) {
+      setLocationLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setMapCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocationLoading(false);
+        },
+        () => {
+          // fallback center
+          setMapCenter({ lat: 6.8276, lng: -5.2893 });
+          setLocationLoading(false);
+        },
+        { timeout: 5000 }
+      );
+    } else {
+      setMapCenter({ lat: 6.8276, lng: -5.2893 });
     }
   };
 
@@ -274,6 +376,7 @@ export default function SignalerPage() {
       formData.append("phone", phone);
       formData.append("neighborhood", neighborhood);
       formData.append("position", position);
+      if (mapsLink) formData.append('mapsLink', mapsLink);
       formData.append("inputType", inputType);
       
       if (inputType === "text") {
@@ -716,6 +819,44 @@ export default function SignalerPage() {
                         <p className="text-xs text-blue-600 mt-2">
                           💡 Cliquez sur le lien pour ouvrir Google Maps et voir l'itinéraire
                         </p>
+                      </div>
+                    )}
+                    {/* Map Picker Modal */}
+                    {showMapModal && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                        <div className="w-full max-w-3xl mx-4 bg-white rounded-lg overflow-hidden shadow-xl">
+                          <div className="flex items-center justify-between p-3 border-b">
+                            <h3 className="font-bold">Choisissez votre position sur la carte</h3>
+                            <div className="flex items-center space-x-2">
+                              <button type="button" onClick={() => setShowMapModal(false)} className="text-sm text-gray-600 hover:text-gray-900">Annuler</button>
+                            </div>
+                          </div>
+                          <div id="map-picker" style={{ height: 420 }}>
+                            {/* Map will mount here */}
+                          </div>
+                          <div className="p-3 flex items-center justify-end space-x-2 border-t">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  // read marker position
+                                  // @ts-ignore
+                                  const markerPos = window.__gm_marker_pos;
+                                  if (markerPos && markerPos.lat && markerPos.lng) {
+                                    confirmMapPosition(markerPos.lat, markerPos.lng);
+                                  } else if (mapCenter) {
+                                    confirmMapPosition(mapCenter.lat, mapCenter.lng);
+                                  }
+                                } catch (e) {
+                                  console.error('Erreur lecture position carte', e);
+                                }
+                              }}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+                            >
+                              Confirmer la position
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

@@ -143,6 +143,7 @@ export async function POST(request: NextRequest) {
   let longitude: number | null = null;
   let audioFile: File | null = null;
   let photoFile: File | null = null;
+  let mapsLink: string | null = null;
 
   try {
     console.log('📥 Début de la réception de la demande...');
@@ -153,6 +154,7 @@ export async function POST(request: NextRequest) {
       phone: formData.get('phone'),
       neighborhood: formData.get('neighborhood'),
       position: formData.get('position'),
+      mapsLink: formData.get('mapsLink'),
       inputType: formData.get('inputType'),
       description: formData.get('description'),
       hasAudio: formData.get('audio') instanceof File,
@@ -167,6 +169,7 @@ export async function POST(request: NextRequest) {
     description = formData.get('description') as string;
     audioFile = formData.get('audio') as File;
     photoFile = formData.get('photo') as File;
+    mapsLink = formData.get('mapsLink') as string || null;
     
     // Extraire les coordonnées GPS du champ position si elles sont fournies
     if (position && position.includes(',')) {
@@ -184,18 +187,20 @@ export async function POST(request: NextRequest) {
     console.log('📝 Données extraites:', { name, phone, neighborhood, position, inputType, description, latitude, longitude });
 
     // Validate required fields
-    if (!name) {
-      console.log('❌ Nom manquant');
+    // Allow audio-only submissions: if no audio is provided, require name and phone
+    const hasAudioUploaded = !!(audioFile && audioFile.size > 0);
+    if (!hasAudioUploaded && !name) {
+      console.log('❌ Nom manquant (aucun audio fourni)');
       return NextResponse.json(
-        { error: 'Le nom est obligatoire' },
+        { error: 'Le nom est obligatoire si vous n\'avez pas envoyé de message vocal' },
         { status: 400 }
       );
     }
 
-    if (!phone) {
-      console.log('❌ Téléphone manquant');
+    if (!hasAudioUploaded && !phone) {
+      console.log('❌ Téléphone manquant (aucun audio fourni)');
       return NextResponse.json(
-        { error: 'Le numéro de téléphone est obligatoire' },
+        { error: 'Le numéro de téléphone est obligatoire si aucun message vocal n\'a été joint' },
         { status: 400 }
       );
     }
@@ -210,6 +215,7 @@ export async function POST(request: NextRequest) {
     messageContent += `Téléphone: ${customerPhone}\n`;
     if (neighborhood) messageContent += `Quartier: ${neighborhood}\n`;
     if (latitude && longitude) messageContent += `Position: ${latitude}, ${longitude}\n`;
+    if (mapsLink) messageContent += `Lien Google Maps: ${mapsLink}\n`;
     messageContent += `Type: ${inputType === 'text' ? 'Texte' : 'Audio'}\n`;
     if (inputType === 'text' && description) messageContent += `\nDescription:\n${description}`;
 
@@ -267,6 +273,7 @@ export async function POST(request: NextRequest) {
             <p><strong>Téléphone:</strong> ${customerPhone}</p>
             ${neighborhood ? `<p><strong>Quartier:</strong> ${neighborhood}</p>` : ''}
             ${latitude && longitude ? `<p><strong>Position GPS:</strong> ${latitude}, ${longitude}</p>` : ''}
+            ${mapsLink ? `<p><strong>Lien Google Maps:</strong> <a href=\"${mapsLink}\" target=\"_blank\">${mapsLink}</a></p>` : ''}
             <p><strong>Type:</strong> ${inputType === 'text' ? 'Texte' : 'Audio'}</p>
             ${inputType === 'text' && description ? `<p><strong>Description:</strong></p><pre>${description}</pre>` : ''}
             <p><strong>Code de suivi:</strong> <code>${trackingCode}</code></p>
@@ -326,6 +333,7 @@ export async function POST(request: NextRequest) {
             <p><strong>Téléphone:</strong> ${customerPhone}</p>
             ${neighborhood ? `<p><strong>Quartier:</strong> ${neighborhood}</p>` : ''}
             ${latitude && longitude ? `<p><strong>Position GPS:</strong> ${latitude}, ${longitude}</p>` : ''}
+            ${mapsLink ? `<p><strong>Lien Google Maps:</strong> <a href=\"${mapsLink}\" target=\"_blank\">${mapsLink}</a></p>` : ''}
             <p><strong>Type:</strong> ${inputType === 'text' ? 'Texte' : 'Audio'}</p>
             ${inputType === 'text' && description ? `<p><strong>Description:</strong></p><pre>${description}</pre>` : ''}
             <p><strong>Code de suivi:</strong> <code>${trackingCode}</code></p>
@@ -446,7 +454,7 @@ export async function POST(request: NextRequest) {
         let smtpResult: any = null;
         const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
         const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
-        const htmlContent = `<div><p>Client: ${customerName}</p><p>Téléphone: ${customerPhone}</p>${neighborhood ? `<p>Quartier: ${neighborhood}</p>` : ''}<p>Code: ${trackingCode}</p></div>`;
+        const htmlContent = `<div><p>Client: ${customerName}</p><p>Téléphone: ${customerPhone}</p>${neighborhood ? `<p>Quartier: ${neighborhood}</p>` : ''}${mapsLink ? `<p><a href=\"${mapsLink}\" target=\"_blank\">Voir la position</a></p>` : ''}<p>Code: ${trackingCode}</p></div>`;
         if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
           try {
             smtpResult = await sendEmailSMTP({
@@ -513,7 +521,7 @@ export async function POST(request: NextRequest) {
       let smtpResult: any = null;
       const emailTo = process.env.EMAIL_TO || 'ebfbouake@gmail.com';
       const emailSubject = `Nouvelle demande - ${customerName} (${trackingCode})`;
-      const htmlContent = `<div><p>Client: ${customerName}</p><p>Téléphone: ${customerPhone}</p>${neighborhood ? `<p>Quartier: ${neighborhood}</p>` : ''}<p>Code: ${trackingCode}</p></div>`;
+      const htmlContent = `<div><p>Client: ${customerName}</p><p>Téléphone: ${customerPhone}</p>${neighborhood ? `<p>Quartier: ${neighborhood}</p>` : ''}${mapsLink ? `<p><a href=\"${mapsLink}\" target=\"_blank\">Voir la position</a></p>` : ''}<p>Code: ${trackingCode}</p></div>`;
       if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
         try {
           smtpResult = await sendEmailSMTP({
