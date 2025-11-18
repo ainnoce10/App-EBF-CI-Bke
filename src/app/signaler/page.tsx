@@ -120,22 +120,6 @@ export default function SignalerPage() {
     try {
       console.log("🎤 Demande d'accès au microphone...");
       
-      // Check if permissions API is available
-      if (navigator.permissions && navigator.permissions.query) {
-        try {
-          const permStatus = await navigator.permissions.query({ name: 'microphone' });
-          console.log('📋 État permission microphone:', permStatus.state);
-          
-          if (permStatus.state === 'denied') {
-            // User has explicitly denied microphone access
-            setFormError("🔒 L'accès au microphone a été refusé dans les paramètres du navigateur.\n\n💡 Pour l'autoriser :\n1. Cliquez sur le 🔒 dans la barre d'adresse\n2. Cliquez sur 'Microphone'\n3. Sélectionnez 'Autoriser'\n4. Actualisez la page et réessayez");
-            return;
-          }
-        } catch (permErr) {
-          console.warn('Impossible de vérifier les permissions:', permErr);
-        }
-      }
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -174,6 +158,8 @@ export default function SignalerPage() {
 
       mediaRecorder.start();
       setIsRecording(true);
+      setFormError(null);
+      
       // auto-stop after 2 minutes
       const maxMs = 2 * 60 * 1000;
       const stopTimer = setTimeout(() => {
@@ -184,27 +170,26 @@ export default function SignalerPage() {
       // attach timer to recorder for cleanup
       // @ts-ignore
       mediaRecorderRef.current._stopTimer = stopTimer;
-      setFormError(null);
     } catch (error: any) {
       console.error('❌ Erreur accès microphone:', error);
       
-      // Messages simples, sans demander de manipulations
-      let errorMessage = "⏸️ Microphone non disponible. C'est optionnel.";
+      let errorMessage = "⏸️ Microphone non disponible. C'est optionnel — vous pouvez continuer par écrit.";
 
-      if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
-        // This could be: user denied, permission previously denied, or insecure context
-        errorMessage = "🔒 Accès au microphone refusé.\n\n💡 Pour l'autoriser :\n1. Cliquez sur le 🔒 dans la barre d'adresse\n2. Cliquez sur 'Microphone'\n3. Sélectionnez 'Autoriser'\n4. Actualisez la page et réessayez";
+      if (error.name === 'NotAllowedError') {
+        // User explicitly denied microphone access in the current request
+        errorMessage = "🔒 Microphone refusé. Cliquez sur le 🔒 dans la barre d'adresse, sélectionnez 'Microphone' → 'Autoriser', puis réessayez.";
+      } else if (error.name === 'SecurityError') {
+        errorMessage = "🔒 Accès microphone bloqué (contexte sécurisé). Vérifiez que le site utilise HTTPS.";
       } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
         errorMessage = "🎤 Pas de microphone détecté sur votre appareil.";
       } else if (error.name === 'NotReadableError') {
-        errorMessage = "⏸️ Microphone inaccessible. Essayez plus tard ou redémarrez votre navigateur.";
+        errorMessage = "⏸️ Microphone inaccessible — redémarrez le navigateur ou votre appareil.";
       } else if (error.name === 'AbortError') {
-        errorMessage = "⏸️ Erreur lors du démarrage du microphone. Réessayez.";
+        errorMessage = "⏸️ Erreur microphone. Essayez à nouveau.";
       }
 
       console.log('ℹ️', errorMessage);
       setFormError(errorMessage);
-      // Afficher l'erreur dans la console, pas d'alert bloquante
     }
   };
 
