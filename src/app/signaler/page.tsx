@@ -119,6 +119,23 @@ export default function SignalerPage() {
   const startRecording = async () => {
     try {
       console.log("🎤 Demande d'accès au microphone...");
+      
+      // Check if permissions API is available
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const permStatus = await navigator.permissions.query({ name: 'microphone' });
+          console.log('📋 État permission microphone:', permStatus.state);
+          
+          if (permStatus.state === 'denied') {
+            // User has explicitly denied microphone access
+            setFormError("🔒 L'accès au microphone a été refusé dans les paramètres du navigateur.\n\n💡 Pour l'autoriser :\n1. Cliquez sur le 🔒 dans la barre d'adresse\n2. Cliquez sur 'Microphone'\n3. Sélectionnez 'Autoriser'\n4. Actualisez la page et réessayez");
+            return;
+          }
+        } catch (permErr) {
+          console.warn('Impossible de vérifier les permissions:', permErr);
+        }
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -175,11 +192,14 @@ export default function SignalerPage() {
       let errorMessage = "⏸️ Microphone non disponible. C'est optionnel.";
 
       if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
-        errorMessage = "⏸️ Microphone non autorisé. Vous pouvez continuer en décrivant votre problème par écrit.";
+        // This could be: user denied, permission previously denied, or insecure context
+        errorMessage = "🔒 Accès au microphone refusé.\n\n💡 Pour l'autoriser :\n1. Cliquez sur le 🔒 dans la barre d'adresse\n2. Cliquez sur 'Microphone'\n3. Sélectionnez 'Autoriser'\n4. Actualisez la page et réessayez";
       } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-        errorMessage = "🎤 Pas de microphone détecté.";
+        errorMessage = "🎤 Pas de microphone détecté sur votre appareil.";
       } else if (error.name === 'NotReadableError') {
-        errorMessage = "⏸️ Microphone inaccessible. Essayez plus tard.";
+        errorMessage = "⏸️ Microphone inaccessible. Essayez plus tard ou redémarrez votre navigateur.";
+      } else if (error.name === 'AbortError') {
+        errorMessage = "⏸️ Erreur lors du démarrage du microphone. Réessayez.";
       }
 
       console.log('ℹ️', errorMessage);
@@ -783,6 +803,33 @@ export default function SignalerPage() {
                       readOnly
                     />
                   </div>
+
+                  {/* Manual Position Input - Fallback */}
+                  {position === "" && (
+                    <div>
+                      <Label htmlFor="manual-position" className="text-sm font-medium text-gray-700 mb-2 block">
+                        💡 Ou saisissez manuellement vos coordonnées (optionnel) :
+                      </Label>
+                      <Input
+                        id="manual-position"
+                        placeholder="Ex: 6.8276, -5.2893"
+                        onBlur={(e) => {
+                          const value = e.target.value.trim();
+                          if (value && value.includes(',')) {
+                            const coords = value.split(',');
+                            if (coords.length === 2) {
+                              const lat = parseFloat(coords[0].trim());
+                              const lng = parseFloat(coords[1].trim());
+                              if (!isNaN(lat) && !isNaN(lng)) {
+                                confirmMapPosition(lat, lng);
+                              }
+                            }
+                          }
+                        }}
+                        className="text-sm p-3 border-2 border-gray-200 focus:border-blue-500 transition-colors"
+                      />
+                    </div>
+                  )}
 
                   {/* Geolocation Button */}
                   <div>
