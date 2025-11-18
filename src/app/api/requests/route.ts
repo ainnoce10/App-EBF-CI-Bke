@@ -176,6 +176,14 @@ export async function POST(request: NextRequest) {
     audioFile = formData.get('audio') as File;
     photoFile = formData.get('photo') as File;
     mapsLink = formData.get('mapsLink') as string || null;
+
+    // Diagnostic info: log attachment metadata
+    try {
+      if (audioFile && audioFile.size) console.log(`🔍 Audio reçu: ${audioFile.name} (${audioFile.size} bytes) type=${audioFile.type}`);
+      if (photoFile && photoFile.size) console.log(`🔍 Photo reçue: ${photoFile.name} (${photoFile.size} bytes) type=${photoFile.type}`);
+    } catch (logErr) {
+      console.warn('⚠️ Impossible de lire les métadonnées des fichiers:', logErr);
+    }
     
     // Extraire les coordonnées GPS du champ position si elles sont fournies
     if (position && position.includes(',')) {
@@ -319,6 +327,10 @@ export async function POST(request: NextRequest) {
           await saveTrackingData(trackingData);
           console.log('💾 Code de suivi sauvegardé:', trackingCode);
 
+          if (attachments && attachments.length > 0) {
+            console.log('📎 Attachments envoyés via SMTP:', attachments.map(a => `${a.name} (${a.type})`).join(', '));
+          }
+
           return NextResponse.json({
             success: true,
             trackingCode,
@@ -398,10 +410,12 @@ export async function POST(request: NextRequest) {
 
         const resp = await resend.emails.send(sendPayload);
         console.log('✉️ Email Resend envoyé à', emailTo, 'resp:', resp?.data?.id || resp);
+        if (attachments.length > 0) console.log('📎 Attachments envoyés via Resend:', attachments.map(a => `${a.name} (${a.type})`).join(', '));
 
         // Save uploaded files to disk
         const audioUrl = await saveUploadedFile(audioFile, trackingCode, 'audio');
         const photoUrl = await saveUploadedFile(photoFile, trackingCode, 'photo');
+        if (attachments && attachments.length > 0) console.log('📎 Attachments prepared for send:', attachments.map(a => a.name).join(', '));
 
         // Save tracking data to JSON file
         const trackingData = await loadTrackingData();

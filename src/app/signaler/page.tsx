@@ -64,42 +64,98 @@ export default function SignalerPage() {
       document.head.appendChild(script);
     });
 
+    const loadLeaflet = () => new Promise<void>((resolve, reject) => {
+      // inject CSS
+      if (!document.querySelector('link[data-leaflet]')) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        link.setAttribute('data-leaflet', '1');
+        document.head.appendChild(link);
+      }
+      if ((window as any).L && (window as any).L.map) return resolve();
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = (e) => reject(e);
+      document.head.appendChild(script);
+    });
+
     const initMap = async () => {
       if (!mapCenter) return;
+      const el = document.getElementById('map-picker');
+      if (!el) return;
+      // clear previous
+      el.innerHTML = '';
+
       try {
-        if (!apiKey) {
-          console.warn('No Google Maps API key (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) found. Map picker may not work.');
-          setMapLoadError("Clé Google Maps manquante. Veuillez contacter l'administrateur.");
+        if (apiKey) {
+          // Try Google Maps first
+          await loadGoogleMaps(apiKey);
+          // @ts-ignore
+          const google = window.google;
+          if (!google || !google.maps) throw new Error('Google Maps not available after load');
+          // @ts-ignore
+          const map = new google.maps.Map(el, { center: { lat: mapCenter.lat, lng: mapCenter.lng }, zoom: 16 });
+          // @ts-ignore
+          const marker = new google.maps.Marker({ position: { lat: mapCenter.lat, lng: mapCenter.lng }, map, draggable: true });
+          // store marker pos globally for confirm button to read
+          // @ts-ignore
+          window.__gm_marker_pos = { lat: mapCenter.lat, lng: mapCenter.lng };
+          marker.addListener('dragend', () => {
+            // @ts-ignore
+            const pos = marker.getPosition();
+            // @ts-ignore
+            window.__gm_marker_pos = { lat: pos.lat(), lng: pos.lng() };
+          });
+          map.addListener('click', (e: any) => {
+            marker.setPosition(e.latLng);
+            // @ts-ignore
+            window.__gm_marker_pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+          });
+          setMapLoadError(null);
           return;
         }
-        await loadGoogleMaps(apiKey);
+      } catch (gErr) {
+        console.warn('Google Maps failed, falling back to Leaflet:', gErr);
+      }
+
+      // Leaflet / OpenStreetMap fallback (no API key required)
+      try {
+        await loadLeaflet();
         // @ts-ignore
-        const google = window.google;
-        const el = document.getElementById('map-picker');
-        if (!el) return;
-        // clear previous
-        el.innerHTML = '';
-        // @ts-ignore
-        const map = new google.maps.Map(el, { center: { lat: mapCenter.lat, lng: mapCenter.lng }, zoom: 16 });
-        // @ts-ignore
-        const marker = new google.maps.Marker({ position: { lat: mapCenter.lat, lng: mapCenter.lng }, map, draggable: true });
-        // store marker pos globally for confirm button to read
+        const L = (window as any).L;
+        // create container div (leaflet expects an empty div)
+        const mapDiv = document.createElement('div');
+        mapDiv.style.height = '100%';
+        mapDiv.style.width = '100%';
+        el.appendChild(mapDiv);
+
+        const map = L.map(mapDiv).setView([mapCenter.lat, mapCenter.lng], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        const marker = L.marker([mapCenter.lat, mapCenter.lng], { draggable: true }).addTo(map);
+        // store marker pos globally for confirm button
         // @ts-ignore
         window.__gm_marker_pos = { lat: mapCenter.lat, lng: mapCenter.lng };
-        marker.addListener('dragend', () => {
+        marker.on('dragend', function (e: any) {
+          const pos = marker.getLatLng();
           // @ts-ignore
-          const pos = marker.getPosition();
-          // @ts-ignore
-          window.__gm_marker_pos = { lat: pos.lat(), lng: pos.lng() };
+          window.__gm_marker_pos = { lat: pos.lat, lng: pos.lng };
         });
-        map.addListener('click', (e: any) => {
-          marker.setPosition(e.latLng);
+        map.on('click', function (e: any) {
+          marker.setLatLng(e.latlng);
           // @ts-ignore
-          window.__gm_marker_pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+          window.__gm_marker_pos = { lat: e.latlng.lat, lng: e.latlng.lng };
         });
-      } catch (e) {
-        console.error('Erreur initialisation Google Maps:', e);
-        setMapLoadError('Impossible de charger Google Maps. Vérifiez la clé ou la connexion.');
+        setMapLoadError(null);
+      } catch (leafErr) {
+        console.error('Erreur initialisation carte de secours (Leaflet):', leafErr);
+        setMapLoadError('Impossible de charger la carte. Vérifiez la connexion.');
       }
     };
 
