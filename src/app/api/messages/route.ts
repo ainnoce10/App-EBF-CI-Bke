@@ -22,6 +22,17 @@ export async function GET(request: NextRequest) {
     });
 
     if (result.success) {
+      // Emit socket event for new message
+      try {
+        const { getIO, hasIO } = await import('@/lib/io');
+        if (hasIO()) {
+          const io = getIO();
+          io.emit('newMessage', { message: result.message });
+        }
+      } catch (emitErr) {
+        console.warn('⚠️ Impossible d\'émettre newMessage:', emitErr);
+      }
+
       return NextResponse.json(result);
     } else {
       return NextResponse.json(

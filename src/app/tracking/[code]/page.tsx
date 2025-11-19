@@ -126,33 +126,80 @@ export default function TrackingPage() {
     }
   }, [trackingCode])
 
-  // Écouter les nouveaux avis via Socket.IO
+  // Écouter les nouveaux avis et mises à jour via Socket.IO
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Importer dynamiquement socket.io-client
-      import('socket.io-client').then(({ io }) => {
-        const socket = io('http://localhost:3000');
-        
-        const handleNewReview = (data) => {
-          const newReview = data.review;
-          if (newReview.trackingCode === trackingCode) {
-            setReviews(prev => [newReview, ...prev]);
-            setShowReviewForm(false);
-            toast.success('Merci pour votre avis !');
+    if (typeof window === 'undefined') return
+
+    let socket: any = null
+
+    ;(async () => {
+      try {
+        const { io } = await import('socket.io-client')
+        // connect to same origin; server exposes the socket
+        socket = io()
+
+        const handleNewReview = (data: any) => {
+          const newReview = data.review
+          if (newReview?.trackingCode === trackingCode) {
+            setReviews(prev => [newReview, ...prev])
+            setShowReviewForm(false)
+            toast.success('Merci pour votre avis !')
           }
-        };
+        }
 
-        socket.on('newReview', handleNewReview);
+        const handleRequestUpdated = (data: any) => {
+          const updated = data?.tracking || data
+          const code = updated?.trackingCode || updated?.code || updated?.tracking?.trackingCode
+          if (code === trackingCode) {
+            setRequestData(prev => {
+              if (!prev) return prev
+              return {
+                ...prev,
+                status: updated.status || prev.status,
+                updatedAt: updated.updatedAt || new Date().toISOString(),
+                customerName: updated.name || updated.customerName || prev.customerName,
+                address: updated.neighborhood || prev.address,
+                phone: updated.phone || prev.phone,
+                description: updated.description || prev.description,
+                // keep any additional URLs/flags if present
+                ...(updated.hasAudio !== undefined ? { hasAudio: updated.hasAudio, audioUrl: updated.audioUrl } : {}),
+                ...(updated.hasPhoto !== undefined ? { hasPhoto: updated.hasPhoto, photoUrl: updated.photoUrl } : {})
+              }
+            })
+            toast.success('Mise à jour du suivi reçue')
+          }
+        }
 
-        return () => {
-          socket.off('newReview', handleNewReview);
-          socket.disconnect();
-        };
-      }).catch(error => {
-        console.error('Erreur lors du chargement de Socket.IO:', error);
-      });
+        const handleNewMessage = (data: any) => {
+          const message = data.message || data
+          // If message carries a tracking code notify the user
+          if (message?.trackingCode === trackingCode) {
+            toast('Nouveau message disponible', { icon: '✉️' })
+          }
+        }
+
+        socket.on('newReview', handleNewReview)
+        socket.on('requestUpdated', handleRequestUpdated)
+        socket.on('newMessage', handleNewMessage)
+
+      } catch (error) {
+        console.error('Erreur lors du chargement de Socket.IO:', error)
+      }
+    })()
+
+    return () => {
+      try {
+        if (socket) {
+          socket.off('newReview')
+          socket.off('requestUpdated')
+          socket.off('newMessage')
+          socket.disconnect()
+        }
+      } catch (e) {
+        // ignore cleanup errors
+      }
     }
-  }, [trackingCode]);
+  }, [trackingCode])
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('fr-FR', {

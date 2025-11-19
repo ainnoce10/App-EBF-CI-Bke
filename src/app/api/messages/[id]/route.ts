@@ -31,7 +31,18 @@ export async function PATCH(
     }
 
     if (result.success) {
-      return NextResponse.json(result);
+        // Emit socket event for message update (if socket available)
+        try {
+          const { getIO, hasIO } = await import('@/lib/io');
+          if (hasIO()) {
+            const io = getIO();
+            io.emit('messageUpdated', { message: result.message });
+          }
+        } catch (emitErr) {
+          console.warn('⚠️ Impossible d\'émettre messageUpdated:', emitErr);
+        }
+
+        return NextResponse.json(result);
     } else {
       return NextResponse.json(
         { success: false, error: result.error },

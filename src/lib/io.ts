@@ -1,0 +1,16 @@
+import { Server } from 'socket.io';
+
+let ioInstance: Server | null = null;
+
+export const setIO = (io: Server) => {
+  ioInstance = io;
+};
+
+export const getIO = (): Server => {
+  if (!ioInstance) {
+    throw new Error('Socket.IO instance not initialized.');
+  }
+  return ioInstance;
+};
+
+export const hasIO = () => !!ioInstance;

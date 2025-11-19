@@ -452,6 +452,28 @@ export async function POST(request: NextRequest) {
         await saveTrackingData(trackingData);
         console.log('💾 Code de suivi sauvegardé:', trackingCode);
 
+        // Emit requestUpdated for realtime clients (resend branch)
+        try {
+          const { getIO, hasIO } = await import('@/lib/io');
+          if (hasIO()) {
+            const io = getIO();
+            io.emit('requestUpdated', { tracking: trackingData[trackingCode] });
+          }
+        } catch (emitErr) {
+          console.warn('⚠️ Impossible d\'émettre requestUpdated (resend branch):', emitErr);
+        }
+
+          // Emit requestUpdated for realtime clients
+          try {
+            const { getIO, hasIO } = await import('@/lib/io');
+            if (hasIO()) {
+              const io = getIO();
+              io.emit('requestUpdated', { tracking: trackingData[trackingCode] });
+            }
+          } catch (emitErr) {
+            console.warn('⚠️ Impossible d\'émettre requestUpdated (smtp branch):', emitErr);
+          }
+
         return NextResponse.json({
           success: true,
           trackingCode,
@@ -522,6 +544,16 @@ export async function POST(request: NextRequest) {
           status: 'submitted'
         };
         await saveTrackingData(trackingData);
+        // Emit requestUpdated for realtime clients (smtp fallback branch)
+        try {
+          const { getIO, hasIO } = await import('@/lib/io');
+          if (hasIO()) {
+            const io = getIO();
+            io.emit('requestUpdated', { tracking: trackingData[trackingCode] });
+          }
+        } catch (emitErr) {
+          console.warn('⚠️ Impossible d\'émettre requestUpdated (smtp fallback):', emitErr);
+        }
 
         return NextResponse.json({ success: true, trackingCode, notification: { sent: !!smtpResult?.success, error: smtpResult?.error || 'RESEND_API_KEY not set' } });
       }
@@ -589,6 +621,17 @@ export async function POST(request: NextRequest) {
         status: 'submitted'
       };
       await saveTrackingData(trackingData);
+
+      // Emit requestUpdated for realtime clients (email error branch)
+      try {
+        const { getIO, hasIO } = await import('@/lib/io');
+        if (hasIO()) {
+          const io = getIO();
+          io.emit('requestUpdated', { tracking: trackingData[trackingCode] });
+        }
+      } catch (emitErr) {
+        console.warn('⚠️ Impossible d\'émettre requestUpdated (email error branch):', emitErr);
+      }
 
       return NextResponse.json({ success: true, trackingCode, notification: { sent: !!smtpResult?.success, error: String(emailErr) } });
     }

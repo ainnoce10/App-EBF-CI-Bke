@@ -40,6 +40,14 @@ async function createCustomServer() {
       }
     });
 
+    // expose the io instance to API routes
+    try {
+      const { setIO } = await import('./src/lib/io.js');
+      setIO(io);
+    } catch (err) {
+      console.warn('⚠️ Impossible d\'initialiser io global:', err);
+    }
+
     setupSocket(io);
 
     // Start the server

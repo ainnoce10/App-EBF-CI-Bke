@@ -248,22 +248,53 @@ export default function SignalerPage() {
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
+        if (event.data && event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        setAudioUrl(audioUrl);
-        setAudioBlob(audioBlob);
-        // send automatically after recording stops
         try {
-          // fire-and-forget
-          sendAudioDirect(audioBlob);
+          // determine mime type: prefer recorder mimeType, else infer from first chunk
+          const inferredType = (mediaRecorder && (mediaRecorder as any).mimeType) || (audioChunksRef.current[0] && (audioChunksRef.current[0] as Blob).type) || 'audio/webm';
+          const audioBlob = new Blob(audioChunksRef.current, { type: inferredType });
+
+          // revoke previous URL if present
+          if (audioUrl) {
+            try { URL.revokeObjectURL(audioUrl); } catch (e) {}
+          }
+
+          const newUrl = URL.createObjectURL(audioBlob);
+          setAudioUrl(newUrl);
+          setAudioBlob(audioBlob);
+
+          // clear collected chunks for next recording
+          audioChunksRef.current = [];
+
+          // stop media tracks and cleanup refs
+          try {
+            if (mediaStreamRef.current) {
+              mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+            }
+          } catch (e) {
+            console.warn('Erreur arrêt pistes après onstop:', e);
+          }
+
+          try { mediaRecorderRef.current = null; } catch (e) {}
+          try { mediaStreamRef.current = null; } catch (e) {}
+          setIsRecording(false);
+
+          // send automatically after recording stops (fire-and-forget)
+          try {
+            const ext = (audioBlob.type && audioBlob.type.split('/')?.[1]) || 'webm';
+            const filename = `recording-${Date.now()}.${ext}`;
+            // ensure sendAudioDirect accepts filename-aware blob
+            sendAudioDirect(audioBlob);
+          } catch (e) {
+            console.error('Erreur envoi audio auto:', e);
+          }
         } catch (e) {
-          console.error('Erreur envoi audio auto:', e);
+          console.error('Erreur traitement onstop audio:', e);
         }
       };
 
@@ -304,6 +335,12 @@ export default function SignalerPage() {
   };
 
   const handleStartClick = async () => {
+    // Ensure MediaRecorder is available
+    if (typeof window.MediaRecorder === 'undefined') {
+      setFormError("Votre navigateur ne supporte pas l'enregistrement vocal. Vous pouvez joindre un fichier audio ou utiliser le mode texte.");
+      return;
+    }
+
     // Request access and reuse the MediaStream to avoid duplicate permission prompts
     const stream = await requestMicrophoneAccess();
     if (stream) {
@@ -389,7 +426,10 @@ export default function SignalerPage() {
       formData.append('neighborhood', '');
       formData.append('position', '');
       formData.append('inputType', 'audio');
-      formData.append('audio', blob, `recording-${Date.now()}.wav`);
+      // choose filename extension from blob type
+      const ext = (blob.type && blob.type.split('/')?.[1]) || 'webm';
+      const filename = `recording-${Date.now()}.${ext}`;
+      formData.append('audio', blob, filename);
 
       const res = await fetch('/api/requests', { method: 'POST', body: formData });
       const json = await res.json().catch(() => null);
@@ -597,10 +637,12 @@ export default function SignalerPage() {
       }
 
       // Ajouter la photo si elle existe
-      const photoInput = document.getElementById('photo') as HTMLInputElement;
-      if (photoInput && photoInput.files && photoInput.files[0]) {
-        console.log('📷 Ajout de la photo:', photoInput.files[0].name);
-        formData.append("photo", photoInput.files[0]);
+      const photoInput = document.getElementById('photo') as HTMLInputElement | null;
+      const cameraInput = document.getElementById('photo-camera') as HTMLInputElement | null;
+      const chosenFile = (photoInput && photoInput.files && photoInput.files[0]) || (cameraInput && cameraInput.files && cameraInput.files[0]);
+      if (chosenFile) {
+        console.log('📷 Ajout de la photo:', chosenFile.name);
+        formData.append("photo", chosenFile);
       }
 
       console.log('📡 Appel API...');
@@ -878,15 +920,15 @@ export default function SignalerPage() {
                             alt="Aperçu de la photo" 
                             className="w-32 h-32 rounded-lg object-cover mx-auto block transition-transform duration-300 group-hover:scale-105 shadow-md"
                           />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setImagePreview(null);
-                              const photoInput = document.getElementById('photo') as HTMLInputElement;
-                              if (photoInput) {
-                                photoInput.value = '';
-                              }
-                            }}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setImagePreview(null);
+                                  const photoInput = document.getElementById('photo') as HTMLInputElement | null;
+                                  const cameraInput = document.getElementById('photo-camera') as HTMLInputElement | null;
+                                  if (photoInput) photoInput.value = '';
+                                  if (cameraInput) cameraInput.value = '';
+                                }}
                             className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg transition-all duration-300 hover:scale-110 opacity-0 group-hover:opacity-100"
                             title="Supprimer l'image"
                           >
@@ -901,14 +943,28 @@ export default function SignalerPage() {
                       {imagePreview ? '📷 Changer la photo' : '📁 Ajouter une photo'}
                     </p>
                     <p className="text-sm text-gray-500 mb-4">Formats supportés : JPG, PNG, GIF, HEIC, WEBP (max 5MB). Sur mobile vous pouvez utiliser l'appareil photo.</p>
-                    <Input
-                      id="photo"
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleImageUpload}
-                      className="mt-2 cursor-pointer transition-all duration-300"
-                    />
+                    <div className="mt-2">
+                      <div className="flex items-center justify-center space-x-3">
+                        <button
+                          type="button"
+                          onClick={() => { const el = document.getElementById('photo-camera') as HTMLInputElement | null; if (el) el.click(); }}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+                        >
+                          Prendre une photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { const el = document.getElementById('photo') as HTMLInputElement | null; if (el) el.click(); }}
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded border"
+                        >
+                          Choisir depuis la galerie
+                        </button>
+                      </div>
+
+                      {/* Hidden inputs: one triggers camera, the other opens gallery for existing photos */}
+                      <input id="photo-camera" type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
+                      <input id="photo" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
