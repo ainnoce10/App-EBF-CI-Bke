@@ -94,7 +94,23 @@ export default function SignalerPage() {
     } catch (err: any) {
       console.error('Permission microphone refusée:', err);
       if (err && err.name === 'NotAllowedError') setMicPermissionState('denied');
-      return null;
+      setFormError(errorMessage);
+
+      // If permission was denied or unavailable, trigger the audio file fallback
+      // This opens the native recorder on many mobile devices when the user clicked a button
+      try {
+        if (error && (error.name === 'NotAllowedError' || micPermissionState === 'denied' || error.name === 'SecurityError')) {
+          const fallback = document.getElementById('audio-upload-fallback') as HTMLInputElement | null;
+          if (fallback) {
+            // programmatic click must be in response to a user gesture — startRecording is usually called from a click
+            fallback.click();
+            return null;
+          }
+        }
+      } catch (e) {
+        console.warn('Impossible d\'ouvrir le fallback audio automatiquement:', e);
+      }
+
     }
   };
 
@@ -354,12 +370,25 @@ export default function SignalerPage() {
   };
   
   const handleStartClick = async () => {
-    // Start inline recording immediately when user clicks "Enregistrer"
+    // If microphone was previously denied, open the native audio capture fallback instead
     try {
+      if (micPermissionState === 'denied') {
+        const fallback = document.getElementById('audio-upload-fallback') as HTMLInputElement | null;
+        if (fallback) {
+          fallback.click();
+          return;
+        }
+      }
+      // Start inline recording (will prompt for permission if needed)
       await startRecording();
     } catch (err) {
       console.error('Erreur démarrage enregistrement inline:', err);
       setFormError("Impossible de démarrer l'enregistrement. Vérifiez les permissions du microphone.");
+      // try fallback as last resort
+      try {
+        const fallback = document.getElementById('audio-upload-fallback') as HTMLInputElement | null;
+        if (fallback) fallback.click();
+      } catch (e) {}
     }
   };
 
