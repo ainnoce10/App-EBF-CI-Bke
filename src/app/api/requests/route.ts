@@ -68,24 +68,60 @@ async function ensureUploadsDir() {
 }
 
 async function loadTrackingData(): Promise<Record<string, any>> {
+  // Try to read from the configured TRACKING_FILE. If that fails, try a /tmp fallback.
   try {
     await ensureTrackingDir();
     const data = await fs.readFile(TRACKING_FILE, 'utf-8');
     return JSON.parse(data);
   } catch (err) {
-    console.log('📝 Fichier tracking.json non trouvé, création d\'un nouveau');
+    try {
+      const altPath = '/tmp/data/tracking.json';
+      if (TRACKING_FILE !== altPath) {
+        const alt = await fs.readFile(altPath, 'utf-8');
+        console.log('ℹ️ Chargé tracking.json depuis le fallback /tmp');
+        // try to persist back to primary location if possible
+        try {
+          await ensureTrackingDir();
+          await fs.writeFile(TRACKING_FILE, alt, 'utf-8');
+          console.log('ℹ️ Copie du fallback /tmp vers le chemin principal réussie');
+        } catch (copyErr) {
+          console.warn('⚠️ Impossible de copier le fichier fallback vers le chemin principal:', copyErr);
+        }
+        return JSON.parse(alt);
+      }
+    } catch (altErr) {
+      // ignore
+    }
+    console.log("📝 Fichier tracking.json non trouvé, création d'un nouveau");
     return {};
   }
 }
 
 async function saveTrackingData(data: Record<string, any>) {
+  const payload = JSON.stringify(data, null, 2);
   try {
     await ensureTrackingDir();
-    await fs.writeFile(TRACKING_FILE, JSON.stringify(data, null, 2), 'utf-8');
-    console.log('✅ Données tracking sauvegardées');
+    await fs.writeFile(TRACKING_FILE, payload, 'utf-8');
+    console.log('✅ Données tracking sauvegardées ->', TRACKING_FILE);
+    return;
   } catch (err) {
-    console.warn('⚠️ Impossible de sauvegarder tracking.json (système de fichiers non persistant?):', err);
-    // Silently continue - data loss is acceptable in ephemeral environments
+    console.warn('⚠️ Impossible de sauvegarder sur le chemin principal:', TRACKING_FILE, err);
+  }
+
+  // Try /tmp fallback
+  try {
+    const tmpDir = '/tmp/data';
+    await fs.mkdir(tmpDir, { recursive: true });
+    const tmpFile = path.join(tmpDir, 'tracking.json');
+    await fs.writeFile(tmpFile, payload, 'utf-8');
+    // update TRACKING_FILE so subsequent reads use the tmp path
+    TRACKING_DATA_DIR = tmpDir;
+    TRACKING_FILE = tmpFile;
+    console.log('✅ Données tracking sauvegardées en fallback ->', tmpFile);
+    return;
+  } catch (tmpErr) {
+    console.warn('⚠️ Impossible de sauvegarder tracking.json sur /tmp:', tmpErr);
+    // Give up silently; data may be ephemeral
   }
 }
 

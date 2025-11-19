@@ -336,35 +336,55 @@ export default function SignalerPage() {
   };
 
   const handleStartClick = async () => {
-    // Ensure MediaRecorder is available
-    if (typeof window.MediaRecorder === 'undefined') {
-      setFormError("Votre navigateur ne supporte pas l'enregistrement vocal. Vous pouvez joindre un fichier audio ou utiliser le mode texte.");
-      return;
-    }
-
-    // Request access and reuse the MediaStream to avoid duplicate permission prompts
-    const stream = await requestMicrophoneAccess();
-    if (stream) {
-      await startRecording(stream);
-    } else {
-      // Try to give a more helpful diagnostic message
-      try {
-        let devicesInfo = [] as any[];
-        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
-          const devs = await navigator.mediaDevices.enumerateDevices();
-          devicesInfo = devs.filter(d => d.kind === 'audioinput').map(d => ({ label: d.label, deviceId: d.deviceId }));
-        }
-        if (micPermissionState === 'denied') {
-          setFormError("🔒 Accès au microphone refusé. Autorisez le micro dans les paramètres du navigateur (icône du cadenas) ou utilisez le bouton 'Enregistrer via l'appareil' pour un enregistrement alternatif.");
-        } else if (devicesInfo.length === 0) {
-          setFormError("🎤 Aucun microphone détecté sur cet appareil. Vous pouvez joindre un fichier audio existant ou passer en mode texte.");
-        } else {
-          setFormError("🔒 Accès au microphone bloqué ou indisponible. Essayez de redémarrer le navigateur ou utilisez le bouton 'Enregistrer via l'appareil'.");
-        }
-        console.log('ℹ️ Diagnostic enumerateDevices audio inputs:', devicesInfo);
-      } catch (e) {
-        setFormError("🔒 Accès au microphone refusé. Assurez-vous d'avoir autorisé le micro dans votre navigateur.");
+    // Open a small popup recorder that uses the browser MediaRecorder and posts the resulting audio back.
+    try {
+      const popup = window.open('', '_blank', 'width=500,height=700');
+      if (!popup) {
+        setFormError('Impossible d\'ouvrir la fenêtre d\'enregistrement. Autorisez les popups et réessayez.');
+        return;
       }
+
+      // HTML recorder (adapted from provided template) - it will post a dataURL to window.opener when done
+      const recorderHtml = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Enregistreur Audio</title><style>body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;display:flex;align-items:center;justify-content:center} .recorder-container{background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;text-align:center} .record-button{width:96px;height:96px;border-radius:50%;border:none;background:#ff4757;color:#fff;font-size:16px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center} .recording{animation:pulse 1.5s infinite} @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,71,87,0.7)}70%{box-shadow:0 0 0 12px rgba(255,71,87,0)}100%{box-shadow:0 0 0 0 rgba(255,71,87,0)}} .timer{margin-top:12px;font-weight:600} .controls{display:flex;gap:8px;justify-content:center;margin-top:12px} button.control-btn{padding:8px 14px;border-radius:999px;border:none;background:#667eea;color:#fff} .status{margin-top:10px;padding:8px;border-radius:8px}</style></head><body><div class="recorder-container"><h2>Enregistreur</h2><button id="recordButton" class="record-button"><span id="buttonText">Commencer</span></button><div id="timer" class="timer">00:00</div><audio id="audioPlayer" controls style="display:none;margin-top:12px;width:100%"></audio><div class="controls"><button id="downloadButton" class="control-btn" disabled>Télécharger</button><button id="clearButton" class="control-btn" disabled>Effacer</button></div><div id="status" class="status" style="display:none"></div></div><script>(() => {let mediaRecorder=null;let audioChunks=[];let audioBlob=null;let audioUrl=null;let startTime=0;let timerInterval=null;let isRecording=false;const recordButton=document.getElementById('recordButton');const buttonText=document.getElementById('buttonText');const timer=document.getElementById('timer');const audioPlayer=document.getElementById('audioPlayer');const downloadButton=document.getElementById('downloadButton');const clearButton=document.getElementById('clearButton');const status=document.getElementById('status');function showStatus(msg){status.textContent=msg;status.style.display='block';}function updateTimer(){timerInterval=setInterval(()=>{const elapsed=Date.now()-startTime;const m=Math.floor(elapsed/60000);const s=Math.floor((elapsed%60000)/1000);timer.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');},1000);}recordButton.addEventListener('click',async()=>{if(isRecording){stopRecording();}else{startRecording();}});downloadButton.addEventListener('click',()=>{if(!audioBlob)return;const a=document.createElement('a');a.href=audioUrl;a.download='enregistrement_'+new Date().toISOString().slice(0,19).replace(/:/g,'-')+'.wav';document.body.appendChild(a);a.click();document.body.removeChild(a);showStatus('Téléchargement démarré');});clearButton.addEventListener('click',()=>{audioBlob=null;audioUrl=null;audioPlayer.src='';audioPlayer.style.display='none';downloadButton.disabled=true;clearButton.disabled=true;timer.textContent='00:00';showStatus('Enregistrement effacé');});async function startRecording(){try{showStatus('Demande d\'accès au microphone...');const stream=await navigator.mediaDevices.getUserMedia({audio:true});mediaRecorder=new MediaRecorder(stream);audioChunks=[];mediaRecorder.ondataavailable=(e)=>{if(e.data&&e.data.size>0)audioChunks.push(e.data)};mediaRecorder.onstop=async()=>{try{audioBlob=new Blob(audioChunks,{type:'audio/wav'});audioUrl=URL.createObjectURL(audioBlob);audioPlayer.src=audioUrl;audioPlayer.style.display='block';downloadButton.disabled=false;clearButton.disabled=false;showStatus('Enregistrement terminé'); // post the recording to opener as dataURL
+const fr=new FileReader();fr.onloadend=()=>{try{const dataUrl=fr.result; if(window.opener){window.opener.postMessage({type:'audio-recording', dataUrl: dataUrl, filename: 'recording_'+Date.now()+'.wav'}, '*');} }catch(e){} };fr.readAsDataURL(audioBlob);}catch(err){console.error('onstop err',err)} };mediaRecorder.start();isRecording=true;startTime=Date.now();updateTimer();recordButton.classList.add('recording');buttonText.textContent='Arrêter';showStatus('Enregistrement en cours...');}catch(err){console.error('err',err);showStatus('Erreur: impossible d\'accéder au microphone');}}function stopRecording(){if(mediaRecorder&&mediaRecorder.state!=='inactive'){mediaRecorder.stop();try{mediaRecorder.stream.getTracks().forEach(t=>t.stop());}catch(e){}isRecording=false;clearInterval(timerInterval);recordButton.classList.remove('recording');buttonText.textContent='Commencer';}}window.addEventListener('beforeunload',()=>{try{if(mediaRecorder&&mediaRecorder.state==='recording')mediaRecorder.stop();}catch(e){} });})();</script></body></html>`;
+
+      popup.document.open();
+      popup.document.write(recorderHtml);
+      popup.document.close();
+
+      // Listen for message from popup with the recorded audio dataURL
+      const handleMessage = (ev: MessageEvent) => {
+        try {
+          if (!ev.data || ev.data.type !== 'audio-recording') return;
+          const dataUrl: string = ev.data.dataUrl;
+          // convert dataURL to Blob
+          const arr = dataUrl.split(',');
+          const mime = arr[0].match(/:(.*?);/)?.[1] || 'audio/wav';
+          const bstr = atob(arr[1]);
+          let n = bstr.length;
+          const u8arr = new Uint8Array(n);
+          while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+          }
+          const blob = new Blob([u8arr], { type: mime });
+          const url = URL.createObjectURL(blob);
+          setAudioBlob(blob);
+          setAudioUrl(url);
+          setFormError(null);
+          setLocationSuccess('✅ Message vocal enregistré et prêt à être envoyé');
+          setShowLocationToast(true);
+          setTimeout(() => setShowLocationToast(false), 3000);
+          try { popup.close(); } catch(e) {}
+          window.removeEventListener('message', handleMessage);
+        } catch (err) {
+          console.error('Erreur traitement message popup recorder:', err);
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+    } catch (err) {
+      console.error('Erreur lors de l\'ouverture du recorder popup:', err);
+      setFormError("Impossible d'ouvrir l'enregistreur. Essayez d'autoriser les popups ou mettez à jour votre navigateur.");
     }
   };
 
