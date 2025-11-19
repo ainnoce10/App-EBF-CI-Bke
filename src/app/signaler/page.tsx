@@ -1,5 +1,15 @@
 ﻿"use client";
 import { useState, useRef, useEffect } from "react";
+
+declare global {
+  interface Window {
+    __gm_map?: any;
+    __gm_marker?: any;
+    __gm_marker_pos?: { lat: number; lng: number } | null;
+    google?: any;
+    L?: any;
+  }
+}
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -40,14 +50,52 @@ export default function SignalerPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const textSectionRef = useRef<HTMLDivElement>(null);
   const audioSectionRef = useRef<HTMLDivElement>(null);
+  const [micPermissionState, setMicPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unknown'>('unknown');
   const router = useRouter();
 
   // Initialize animations
   useEffect(() => {
     setIsVisible(true);
   }, []);
+
+  // Query microphone permission state if supported
+  useEffect(() => {
+    let mounted = true;
+    const check = async () => {
+      try {
+        if (navigator.permissions && (navigator.permissions as any).query) {
+          const status = await (navigator.permissions as any).query({ name: 'microphone' });
+          if (!mounted) return;
+          setMicPermissionState(status.state || 'unknown');
+          status.onchange = () => setMicPermissionState(status.state || 'unknown');
+        } else {
+          setMicPermissionState('unknown');
+        }
+      } catch (e) {
+        setMicPermissionState('unknown');
+      }
+    };
+    check();
+    return () => { mounted = false; };
+  }, []);
+
+  // Try to request microphone access (user gesture required). Returns true if granted.
+  const requestMicrophoneAccess = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // stop tracks immediately (we just wanted permission)
+      stream.getTracks().forEach(t => t.stop());
+      setMicPermissionState('granted');
+      return true;
+    } catch (err: any) {
+      console.error('Permission microphone refused:', err);
+      if (err && err.name === 'NotAllowedError') setMicPermissionState('denied');
+      return false;
+    }
+  };
 
   // Initialize Google Maps picker when modal opens
   useEffect(() => {
@@ -91,7 +139,7 @@ export default function SignalerPage() {
       el.innerHTML = '';
 
       try {
-        if (apiKey) {
+          if (apiKey) {
           // Try Google Maps first
           await loadGoogleMaps(apiKey);
           // @ts-ignore
@@ -101,6 +149,11 @@ export default function SignalerPage() {
           const map = new google.maps.Map(el, { center: { lat: mapCenter.lat, lng: mapCenter.lng }, zoom: 16 });
           // @ts-ignore
           const marker = new google.maps.Marker({ position: { lat: mapCenter.lat, lng: mapCenter.lng }, map, draggable: true });
+          // expose map and marker for search/move operations
+          // @ts-ignore
+          window.__gm_map = map;
+          // @ts-ignore
+          window.__gm_marker = marker;
           // store marker pos globally for confirm button to read
           // @ts-ignore
           window.__gm_marker_pos = { lat: mapCenter.lat, lng: mapCenter.lng };
@@ -139,6 +192,11 @@ export default function SignalerPage() {
           attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
         const marker = L.marker([mapCenter.lat, mapCenter.lng], { draggable: true }).addTo(map);
+        // expose map and marker for search/move operations
+        // @ts-ignore
+        window.__gm_map = map;
+        // @ts-ignore
+        window.__gm_marker = marker;
         // store marker pos globally for confirm button
         // @ts-ignore
         window.__gm_marker_pos = { lat: mapCenter.lat, lng: mapCenter.lng };
@@ -246,6 +304,22 @@ export default function SignalerPage() {
 
       console.log('ℹ️', errorMessage);
       setFormError(errorMessage);
+    }
+  };
+
+  const handleStartClick = async () => {
+    // If permission already granted, start recording immediately
+    if (micPermissionState === 'granted') {
+      await startRecording();
+      return;
+    }
+
+    // Otherwise request access first (user gesture)
+    const ok = await requestMicrophoneAccess();
+    if (ok) {
+      await startRecording();
+    } else {
+      setFormError("🔒 Accès au microphone refusé. Assurez-vous d'avoir autorisé le micro dans votre navigateur.");
     }
   };
 
@@ -389,25 +463,87 @@ export default function SignalerPage() {
     // Open the interactive map modal to let user pick a position
     setLocationError(null);
     setLocationSuccess(null);
-    setShowMapModal(true);
+    setLocationLoading(true);
 
-    // Try to center map on user's location if available
+    // Try to center map on user's location first, then open modal
     if (navigator.geolocation) {
-      setLocationLoading(true);
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setMapCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           setLocationLoading(false);
+          setShowMapModal(true);
         },
         () => {
           // fallback center
           setMapCenter({ lat: 6.8276, lng: -5.2893 });
           setLocationLoading(false);
+          setShowMapModal(true);
         },
         { timeout: 5000 }
       );
     } else {
       setMapCenter({ lat: 6.8276, lng: -5.2893 });
+      setLocationLoading(false);
+      setShowMapModal(true);
+    }
+  };
+
+  // Search handler: use Google Geocoder if available, otherwise Nominatim (OpenStreetMap)
+  const handleMapSearch = async (query: string) => {
+    if (!query || !query.trim()) return;
+    setSearchQuery(query);
+    try {
+      // If google maps loaded, use Geocoder
+      // @ts-ignore
+      if (window.google && window.google.maps && window.google.maps.Geocoder) {
+        // @ts-ignore
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ address: query }, (results: any) => {
+          if (results && results[0] && results[0].geometry && results[0].geometry.location) {
+            const lat = results[0].geometry.location.lat();
+            const lng = results[0].geometry.location.lng();
+            // move marker and center map
+            try {
+              // @ts-ignore
+              if (window.__gm_map && window.__gm_map.setCenter) {
+                // @ts-ignore
+                window.__gm_map.setCenter({ lat, lng });
+              }
+              // @ts-ignore
+              if (window.__gm_marker && window.__gm_marker.setPosition) {
+                // @ts-ignore
+                window.__gm_marker.setPosition({ lat, lng });
+              }
+              // @ts-ignore
+              window.__gm_marker_pos = { lat, lng };
+            } catch (e) {}
+          }
+        });
+        return;
+      }
+
+      // Fallback to Nominatim
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+      const resp = await fetch(url);
+      const items = await resp.json();
+      if (items && items[0]) {
+        const lat = parseFloat(items[0].lat);
+        const lng = parseFloat(items[0].lon);
+        try {
+          // @ts-ignore
+          const L = window.L;
+          if (L && window.__gm_map && window.__gm_map.setView) {
+            // @ts-ignore
+            window.__gm_map.setView([lat, lng], 16);
+            // @ts-ignore
+            if (window.__gm_marker && window.__gm_marker.setLatLng) window.__gm_marker.setLatLng([lat, lng]);
+          }
+          // @ts-ignore
+          window.__gm_marker_pos = { lat, lng };
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error('Erreur geocoding:', err);
     }
   };
 
@@ -667,7 +803,7 @@ export default function SignalerPage() {
                         {!isRecording ? (
                           <Button
                             type="button"
-                            onClick={startRecording}
+                            onClick={handleStartClick}
                             className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-full text-lg font-semibold shadow-lg transform transition-all duration-300 hover:scale-110 hover:shadow-xl"
                           >
                             <Mic className="w-6 h-6 mr-2" />
@@ -930,12 +1066,21 @@ export default function SignalerPage() {
                     {showMapModal && (
                       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
                         <div className="w-full max-w-3xl mx-4 bg-white rounded-lg overflow-hidden shadow-xl">
-                          <div className="flex items-center justify-between p-3 border-b">
-                            <h3 className="font-bold">Choisissez votre position sur la carte</h3>
-                            <div className="flex items-center space-x-2">
-                              <button type="button" onClick={() => setShowMapModal(false)} className="text-sm text-gray-600 hover:text-gray-900">Annuler</button>
-                            </div>
-                          </div>
+                                          <div className="flex items-center justify-between p-3 border-b">
+                                            <h3 className="font-bold">Choisissez votre position sur la carte</h3>
+                                            <div className="flex items-center space-x-2">
+                                              <input
+                                                type="text"
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleMapSearch(searchQuery); } }}
+                                                placeholder="Rechercher une adresse ou un lieu"
+                                                className="text-sm p-2 border rounded w-64"
+                                              />
+                                              <button type="button" onClick={() => handleMapSearch(searchQuery)} className="text-sm bg-blue-600 text-white px-3 py-2 rounded">Rechercher</button>
+                                              <button type="button" onClick={() => setShowMapModal(false)} className="text-sm text-gray-600 hover:text-gray-900">Annuler</button>
+                                            </div>
+                                          </div>
                           <div>
                             {mapLoadError ? (
                               <div className="p-6 text-center text-sm text-red-600">

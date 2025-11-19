@@ -184,6 +184,19 @@ export async function POST(request: NextRequest) {
     } catch (logErr) {
       console.warn('⚠️ Impossible de lire les métadonnées des fichiers:', logErr);
     }
+
+    // If debug query param is present, return the parsed file metadata to help debugging
+    try {
+      const url = new URL(request.url);
+      const debug = url.searchParams.get('debug') === '1';
+      if (debug) {
+        const audioInfo = audioFile && (audioFile as any).size ? { name: (audioFile as any).name, size: (audioFile as any).size, type: (audioFile as any).type } : null;
+        const photoInfo = photoFile && (photoFile as any).size ? { name: (photoFile as any).name, size: (photoFile as any).size, type: (photoFile as any).type } : null;
+        return NextResponse.json({ debug: true, audio: audioInfo, photo: photoInfo, form: { name, phone, neighborhood, position, mapsLink, inputType, description } });
+      }
+    } catch (e) {
+      console.warn('⚠️ Debug mode check failed:', e);
+    }
     
     // Extraire les coordonnées GPS du champ position si elles sont fournies
     if (position && position.includes(',')) {
