@@ -82,18 +82,16 @@ export default function SignalerPage() {
     return () => { mounted = false; };
   }, []);
 
-  // Try to request microphone access (user gesture required). Returns true if granted.
-  const requestMicrophoneAccess = async () => {
+  // Request microphone access and return the MediaStream if granted (or null)
+  const requestMicrophoneAccess = async (): Promise<MediaStream | null> => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // stop tracks immediately (we just wanted permission)
-      stream.getTracks().forEach(t => t.stop());
       setMicPermissionState('granted');
-      return true;
+      return stream;
     } catch (err: any) {
-      console.error('Permission microphone refused:', err);
+      console.error('Permission microphone refusée:', err);
       if (err && err.name === 'NotAllowedError') setMicPermissionState('denied');
-      return false;
+      return null;
     }
   };
 
@@ -230,11 +228,10 @@ export default function SignalerPage() {
       }
     };
   }, [audioUrl]);
-  const startRecording = async () => {
+  const startRecording = async (providedStream?: MediaStream) => {
     try {
-      console.log("🎤 Demande d'accès au microphone...");
-      
-      const stream = await navigator.mediaDevices.getUserMedia({
+      console.log("🎤 Démarrage de l'enregistrement...");
+      const stream = providedStream || await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -242,7 +239,7 @@ export default function SignalerPage() {
         },
       });
 
-      console.log('✅ Microphone autorisé, enregistrement en cours...');
+      console.log('✅ Microphone prêt, enregistrement en cours...');
       const mediaRecorder = new MediaRecorder(stream);
 
       // store stream separately so we can stop tracks reliably later
@@ -273,7 +270,7 @@ export default function SignalerPage() {
       mediaRecorder.start();
       setIsRecording(true);
       setFormError(null);
-      
+
       // auto-stop after 2 minutes
       const maxMs = 2 * 60 * 1000;
       const stopTimer = setTimeout(() => {
@@ -290,7 +287,6 @@ export default function SignalerPage() {
       let errorMessage = "⏸️ Microphone non disponible. C'est optionnel — vous pouvez continuer par écrit.";
 
       if (error.name === 'NotAllowedError') {
-        // User explicitly denied microphone access in the current request
         errorMessage = "🔒 Microphone refusé. Cliquez sur le 🔒 dans la barre d'adresse, sélectionnez 'Microphone' → 'Autoriser', puis réessayez.";
       } else if (error.name === 'SecurityError') {
         errorMessage = "🔒 Accès microphone bloqué (contexte sécurisé). Vérifiez que le site utilise HTTPS.";
@@ -308,16 +304,10 @@ export default function SignalerPage() {
   };
 
   const handleStartClick = async () => {
-    // If permission already granted, start recording immediately
-    if (micPermissionState === 'granted') {
-      await startRecording();
-      return;
-    }
-
-    // Otherwise request access first (user gesture)
-    const ok = await requestMicrophoneAccess();
-    if (ok) {
-      await startRecording();
+    // Request access and reuse the MediaStream to avoid duplicate permission prompts
+    const stream = await requestMicrophoneAccess();
+    if (stream) {
+      await startRecording(stream);
     } else {
       setFormError("🔒 Accès au microphone refusé. Assurez-vous d'avoir autorisé le micro dans votre navigateur.");
     }
@@ -355,9 +345,22 @@ export default function SignalerPage() {
       } catch (e) {
         console.warn('Erreur arrêt des pistes média:', e);
       }
+      // cleanup refs
+      try { mediaRecorderRef.current = null; } catch(e) {}
+      try { mediaStreamRef.current = null; } catch(e) {}
       setIsRecording(false);
     }
   };
+
+  // Focus search input when map modal opens
+  useEffect(() => {
+    if (showMapModal) {
+      setTimeout(() => {
+        const el = document.getElementById('map-search') as HTMLInputElement | null;
+        if (el) el.focus();
+      }, 120);
+    }
+  }, [showMapModal]);
 
   const playAudio = () => {
     if (audioUrl) {
@@ -411,19 +414,13 @@ export default function SignalerPage() {
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith("image/")) {
-      // Vérifier la taille du fichier (max 3MB)
-      if (file.size > 3 * 1024 * 1024) {
-        alert("❌ L'image est trop volumineuse. La taille maximale est de 3MB.");
+      // Vérifier la taille du fichier (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert("❌ L'image est trop volumineuse. La taille maximale est de 5MB. Réduisez la résolution ou compressez l'image et réessayez.");
         return;
       }
-      
-      // Vérifier le type de fichier
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-      if (!allowedTypes.includes(file.type)) {
-        alert("❌ Format non supporté. Veuillez utiliser JPG, PNG ou GIF.");
-        return;
-      }
-      
+
+      // Accept any image/* MIME (incl. HEIC/HEIF from mobiles). We'll forward to server and let server/logs decide.
       const url = URL.createObjectURL(file);
       setImagePreview(url);
       
@@ -436,7 +433,7 @@ export default function SignalerPage() {
         }, 1000);
       }
     } else if (file && !file.type.startsWith("image/")) {
-      alert("❌ Veuillez sélectionner un fichier image valide.");
+      alert("❌ Veuillez sélectionner un fichier image valide (JPG/PNG/GIF/HEIC...).");
     }
   };
 
@@ -834,7 +831,7 @@ export default function SignalerPage() {
                       
                       <div className="bg-blue-50 p-4 rounded-lg">
                         <p className="text-blue-800 font-medium">
-                          {isRecording ? "🔴 Enregistrement en cours..." : "⏱️ Durée maximale : 90 secondes"}
+                          {isRecording ? "🔴 Enregistrement en cours..." : "⏱️ Durée maximale : 120 secondes (2 minutes)"}
                         </p>
                       </div>
 
@@ -903,11 +900,12 @@ export default function SignalerPage() {
                     <p className={`mb-2 font-medium transition-colors duration-300 ${imagePreview ? 'text-green-700' : 'text-gray-600'}`}>
                       {imagePreview ? '📷 Changer la photo' : '📁 Ajouter une photo'}
                     </p>
-                    <p className="text-sm text-gray-500 mb-4">Formats supportés : JPG, PNG, GIF (max 5MB)</p>
+                    <p className="text-sm text-gray-500 mb-4">Formats supportés : JPG, PNG, GIF, HEIC, WEBP (max 5MB). Sur mobile vous pouvez utiliser l'appareil photo.</p>
                     <Input
                       id="photo"
                       type="file"
                       accept="image/*"
+                      capture="environment"
                       onChange={handleImageUpload}
                       className="mt-2 cursor-pointer transition-all duration-300"
                     />
@@ -1070,6 +1068,7 @@ export default function SignalerPage() {
                                             <h3 className="font-bold">Choisissez votre position sur la carte</h3>
                                             <div className="flex items-center space-x-2">
                                               <input
+                                                id="map-search"
                                                 type="text"
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
