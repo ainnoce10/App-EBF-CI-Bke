@@ -42,6 +42,7 @@ export default function SignalerPage() {
   const [position, setPosition] = useState("");
   const [mapsLink, setMapsLink] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const photoFileRef = useRef<File | null>(null);
   const [isAutoSendingAudio, setIsAutoSendingAudio] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -346,7 +347,24 @@ export default function SignalerPage() {
     if (stream) {
       await startRecording(stream);
     } else {
-      setFormError("🔒 Accès au microphone refusé. Assurez-vous d'avoir autorisé le micro dans votre navigateur.");
+      // Try to give a more helpful diagnostic message
+      try {
+        let devicesInfo = [] as any[];
+        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+          const devs = await navigator.mediaDevices.enumerateDevices();
+          devicesInfo = devs.filter(d => d.kind === 'audioinput').map(d => ({ label: d.label, deviceId: d.deviceId }));
+        }
+        if (micPermissionState === 'denied') {
+          setFormError("🔒 Accès au microphone refusé. Autorisez le micro dans les paramètres du navigateur (icône du cadenas) ou utilisez le bouton 'Enregistrer via l'appareil' pour un enregistrement alternatif.");
+        } else if (devicesInfo.length === 0) {
+          setFormError("🎤 Aucun microphone détecté sur cet appareil. Vous pouvez joindre un fichier audio existant ou passer en mode texte.");
+        } else {
+          setFormError("🔒 Accès au microphone bloqué ou indisponible. Essayez de redémarrer le navigateur ou utilisez le bouton 'Enregistrer via l'appareil'.");
+        }
+        console.log('ℹ️ Diagnostic enumerateDevices audio inputs:', devicesInfo);
+      } catch (e) {
+        setFormError("🔒 Accès au microphone refusé. Assurez-vous d'avoir autorisé le micro dans votre navigateur.");
+      }
     }
   };
 
@@ -415,6 +433,18 @@ export default function SignalerPage() {
     }
   };
 
+  // Fallback when getUserMedia is not available or denied: allow mobile OS audio capture via file input
+  const handleAudioFileFallback = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('audio/')) {
+      const url = URL.createObjectURL(file);
+      setAudioUrl(url);
+      setAudioBlob(file);
+      setFormError(null);
+      console.log('📥 Audio fallback file selected:', file.name, file.size, file.type);
+    }
+  };
+
   // Send audio immediately after recording stopped (audioBlob must be set)
   const sendAudioDirect = async (blob: Blob) => {
     try {
@@ -463,6 +493,8 @@ export default function SignalerPage() {
       // Accept any image/* MIME (incl. HEIC/HEIF from mobiles). We'll forward to server and let server/logs decide.
       const url = URL.createObjectURL(file);
       setImagePreview(url);
+      photoFileRef.current = file;
+      console.log('📥 Image selected:', file.name, file.size, file.type, 'from', event.target.id);
       
       // Feedback visuel de succès
       const uploadArea = event.target.closest('.border-dashed');
@@ -637,9 +669,12 @@ export default function SignalerPage() {
       }
 
       // Ajouter la photo si elle existe
+      // Prefer explicit ref stored when the user selected an image; fallback to DOM inputs
       const photoInput = document.getElementById('photo') as HTMLInputElement | null;
       const cameraInput = document.getElementById('photo-camera') as HTMLInputElement | null;
-      const chosenFile = (photoInput && photoInput.files && photoInput.files[0]) || (cameraInput && cameraInput.files && cameraInput.files[0]);
+      const domFile = (photoInput && photoInput.files && photoInput.files[0]) || (cameraInput && cameraInput.files && cameraInput.files[0]);
+      const chosenFile = photoFileRef.current || domFile || null;
+      if (chosenFile) console.log('📷 Photo ready to append:', chosenFile.name, chosenFile.size, chosenFile.type);
       if (chosenFile) {
         console.log('📷 Ajout de la photo:', chosenFile.name);
         formData.append("photo", chosenFile);
@@ -888,6 +923,12 @@ export default function SignalerPage() {
                           onChange={handleFileUpload}
                           className="mt-2"
                         />
+                          <div className="mt-2">
+                            <input id="audio-upload-fallback" name="audio" type="file" accept="audio/*" capture onChange={handleAudioFileFallback} className="hidden" />
+                            {micPermissionState === 'denied' && (
+                              <button type="button" onClick={() => { const el = document.getElementById('audio-upload-fallback') as HTMLInputElement | null; if (el) el.click(); }} className="mt-3 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded text-sm">Enregistrer via l'appareil (fallback)</button>
+                            )}
+                          </div>
                       </div>
 
                       {audioUrl && (
@@ -928,6 +969,7 @@ export default function SignalerPage() {
                                   const cameraInput = document.getElementById('photo-camera') as HTMLInputElement | null;
                                   if (photoInput) photoInput.value = '';
                                   if (cameraInput) cameraInput.value = '';
+                                  photoFileRef.current = null;
                                 }}
                             className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-lg transition-all duration-300 hover:scale-110 opacity-0 group-hover:opacity-100"
                             title="Supprimer l'image"
@@ -962,8 +1004,8 @@ export default function SignalerPage() {
                       </div>
 
                       {/* Hidden inputs: one triggers camera, the other opens gallery for existing photos */}
-                      <input id="photo-camera" type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
-                      <input id="photo" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                      <input id="photo-camera" name="photo" type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
+                      <input id="photo" name="photo" type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
                     </div>
                   </div>
                 </CardContent>

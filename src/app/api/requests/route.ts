@@ -89,6 +89,22 @@ async function saveTrackingData(data: Record<string, any>) {
   }
 }
 
+// Emit realtime events for admin clients (new request + update)
+async function emitRequestEvents(trackingEntry: any) {
+  try {
+    const { getIO, hasIO } = await import('@/lib/io');
+    if (hasIO()) {
+      const io = getIO();
+      try { io.emit('newRequest', { tracking: trackingEntry }); } catch(e) { console.warn('⚠️ emit newRequest failed', e); }
+      try { io.emit('requestUpdated', { tracking: trackingEntry }); } catch(e) { console.warn('⚠️ emit requestUpdated failed', e); }
+    } else {
+      console.log('ℹ️ No IO instance available to emit realtime events');
+    }
+  } catch (err) {
+    console.warn('⚠️ Impossible d\'émettre les événements realtime:', err);
+  }
+}
+
 async function saveUploadedFile(file: File, trackingCode: string, type: 'audio' | 'photo'): Promise<string | null> {
   try {
     if (!file || file.size === 0) return null;
@@ -340,6 +356,9 @@ export async function POST(request: NextRequest) {
           await saveTrackingData(trackingData);
           console.log('💾 Code de suivi sauvegardé:', trackingCode);
 
+          // Emit realtime events for admin clients
+          try { await emitRequestEvents(trackingData[trackingCode]); } catch(e) {}
+
           if (attachments && attachments.length > 0) {
             console.log('📎 Attachments envoyés via SMTP:', attachments.map(a => `${a.name} (${a.type})`).join(', '));
           }
@@ -453,6 +472,7 @@ export async function POST(request: NextRequest) {
         console.log('💾 Code de suivi sauvegardé:', trackingCode);
 
         // Emit requestUpdated for realtime clients (resend branch)
+        try { await emitRequestEvents(trackingData[trackingCode]); } catch(e) {}
         try {
           const { getIO, hasIO } = await import('@/lib/io');
           if (hasIO()) {
@@ -545,6 +565,7 @@ export async function POST(request: NextRequest) {
         };
         await saveTrackingData(trackingData);
         // Emit requestUpdated for realtime clients (smtp fallback branch)
+        try { await emitRequestEvents(trackingData[trackingCode]); } catch(e) {}
         try {
           const { getIO, hasIO } = await import('@/lib/io');
           if (hasIO()) {
@@ -623,6 +644,7 @@ export async function POST(request: NextRequest) {
       await saveTrackingData(trackingData);
 
       // Emit requestUpdated for realtime clients (email error branch)
+      try { await emitRequestEvents(trackingData[trackingCode]); } catch(e) {}
       try {
         const { getIO, hasIO } = await import('@/lib/io');
         if (hasIO()) {
@@ -650,6 +672,12 @@ export async function GET(request: NextRequest) {
   try {
     // Try to load persisted tracking data (from data/tracking.json)
     const trackingData = await loadTrackingData();
+
+    // Debug: log how many tracking entries we loaded
+    try {
+      const keys = Object.keys(trackingData || {});
+      console.log(`📊 /api/requests GET - loaded ${keys.length} tracking entries. Sample keys: ${keys.slice(0,10).join(', ')}`);
+    } catch(e) {}
 
     // Convert trackingData (object keyed by trackingCode) into an array
     const requestsArray = Object.values(trackingData).map((item: any) => {

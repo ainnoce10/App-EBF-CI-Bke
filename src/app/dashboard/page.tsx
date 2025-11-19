@@ -142,6 +142,67 @@ export default function DashboardPage() {
     return () => { mounted = false };
   }, []);
 
+  // Realtime: listen for new requests and updates via Socket.IO
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let socket: any = null;
+    (async () => {
+      try {
+        const { io } = await import('socket.io-client');
+        socket = io();
+
+        const toRequestShape = (tracking: any): Request => ({
+          id: tracking.code || tracking.trackingCode || (`req_${Math.random().toString(36).slice(2,9)}`),
+          customer: { name: tracking.name || null, phone: tracking.phone || '', neighborhood: tracking.neighborhood || null },
+          type: tracking.inputType === 'audio' || tracking.hasAudio ? 'AUDIO' : 'TEXT',
+          status: (tracking.status === 'submitted' ? 'NEW' : tracking.status || 'NEW'),
+          createdAt: tracking.createdAt || new Date().toISOString(),
+          technician: tracking.technician || undefined,
+          audioUrl: tracking.audioUrl,
+          photoUrl: tracking.photoUrl,
+          transcription: tracking.transcription,
+          scheduledDate: tracking.scheduledDate,
+          notes: tracking.notes,
+          description: tracking.description,
+          priority: tracking.priority || 'MEDIUM',
+          estimatedCost: tracking.estimatedCost,
+        });
+
+        const handleNewRequest = (data: any) => {
+          const tracking = data?.tracking || data;
+          const req = toRequestShape(tracking);
+          setRequests(prev => {
+              const exists = prev.some(r => r.id === req.id);
+            if (exists) return prev;
+            return [req, ...prev];
+          });
+        };
+
+        const handleRequestUpdated = (data: any) => {
+          const tracking = data?.tracking || data;
+          const updated = toRequestShape(tracking);
+          setRequests(prev => prev.map(r => (r.id === updated.id ? { ...r, ...updated } : r)));
+        };
+
+        socket.on('newRequest', handleNewRequest);
+        socket.on('requestUpdated', handleRequestUpdated);
+
+      } catch (err) {
+        console.error('Erreur socket dashboard:', err);
+      }
+    })();
+
+    return () => {
+      try {
+        if (socket) {
+          socket.off('newRequest');
+          socket.off('requestUpdated');
+          socket.disconnect();
+        }
+      } catch (e) {}
+    };
+  }, []);
+
   // Filtrer les demandes quand les filtres changent
   useEffect(() => {
     filterRequestsList();
