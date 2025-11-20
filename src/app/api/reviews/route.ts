@@ -158,6 +158,19 @@ export async function POST(request: NextRequest) {
 
     console.log('💾 Avis créé et sauvegardé:', reviewId);
 
+    // Emit realtime event to connected clients if IO is available
+    try {
+      const { getIO, hasIO } = await import('@/lib/io');
+      if (hasIO()) {
+        const io = getIO();
+        try { io.emit('newReview', { review: { id: newReview.id, name: newReview.name, rating: newReview.rating, comment: newReview.comment, date: newReview.date } }); } catch(e) { console.warn('⚠️ emit newReview failed', e); }
+      } else {
+        console.log('ℹ️ No IO instance available to emit newReview');
+      }
+    } catch (err) {
+      console.warn('⚠️ Impossible d\'émettre newReview:', err);
+    }
+
     return NextResponse.json({ 
       success: true, 
       review: {

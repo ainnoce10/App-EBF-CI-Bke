@@ -26,6 +26,7 @@ export default function SignalerPage() {
   const [description, setDescription] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -94,23 +95,7 @@ export default function SignalerPage() {
     } catch (err: any) {
       console.error('Permission microphone refusée:', err);
       if (err && err.name === 'NotAllowedError') setMicPermissionState('denied');
-      setFormError(errorMessage);
-
-      // If permission was denied or unavailable, trigger the audio file fallback
-      // This opens the native recorder on many mobile devices when the user clicked a button
-      try {
-        if (error && (error.name === 'NotAllowedError' || micPermissionState === 'denied' || error.name === 'SecurityError')) {
-          const fallback = document.getElementById('audio-upload-fallback') as HTMLInputElement | null;
-          if (fallback) {
-            // programmatic click must be in response to a user gesture — startRecording is usually called from a click
-            fallback.click();
-            return null;
-          }
-        }
-      } catch (e) {
-        console.warn('Impossible d\'ouvrir le fallback audio automatiquement:', e);
-      }
-
+      return null;
     }
   };
 
@@ -682,6 +667,7 @@ export default function SignalerPage() {
       const formData = new FormData();
       formData.append("name", name);
       formData.append("phone", phone);
+      formData.append("city", city);
       formData.append("neighborhood", neighborhood);
       formData.append("position", position);
       if (mapsLink) formData.append('mapsLink', mapsLink);
@@ -953,7 +939,7 @@ export default function SignalerPage() {
                           <div className="mt-2">
                             <input id="audio-upload-fallback" name="audio" type="file" accept="audio/*" capture onChange={handleAudioFileFallback} className="hidden" />
                             {micPermissionState === 'denied' && (
-                              <button type="button" onClick={() => { const el = document.getElementById('audio-upload-fallback') as HTMLInputElement | null; if (el) el.click(); }} className="mt-3 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded text-sm">Enregistrer via l'appareil (fallback)</button>
+                              <button type="button" onClick={() => { const el = document.getElementById('audio-upload-fallback') as HTMLInputElement | null; if (el) el.click(); }} className="mt-3 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded text-sm"></button>
                             )}
                           </div>
                       </div>
@@ -1074,6 +1060,19 @@ export default function SignalerPage() {
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="+225 XX XX XX XX XX"
                         required
+                        className="text-lg p-4 border-2 border-gray-200 focus:border-blue-500 transition-colors"
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="city" className="text-lg font-semibold text-gray-900 mb-2 block">
+                        Ville
+                      </Label>
+                      <Input
+                        id="city"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        placeholder="Ex: Bouaké"
                         className="text-lg p-4 border-2 border-gray-200 focus:border-blue-500 transition-colors"
                       />
                     </div>

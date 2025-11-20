@@ -34,24 +34,33 @@ export function SimpleReviewForm({ isOpen, onClose }: SimpleReviewFormProps) {
   // Écouter les nouveaux avis via Socket.IO
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Importer dynamiquement socket.io-client
-      import('socket.io-client').then(({ io }) => {
-        const socket = io('http://localhost:3000');
-        
-        const handleNewReview = (data) => {
-          toast.success('Merci pour votre avis ! Il a été ajouté avec succès.');
-          onClose();
-        };
+      // Importer dynamiquement socket.io-client and connect to same origin
+      let socket: any = null;
+      (async () => {
+        try {
+          const { io } = await import('socket.io-client');
+          // Connect to current origin so it works in dev and production
+          socket = io();
 
-        socket.on('newReview', handleNewReview);
+          const handleNewReview = (data: any) => {
+            toast.success('Merci pour votre avis ! Il a été ajouté avec succès.');
+            onClose();
+          };
 
-        return () => {
-          socket.off('newReview', handleNewReview);
-          socket.disconnect();
-        };
-      }).catch(error => {
-        console.error('Erreur lors du chargement de Socket.IO:', error);
-      });
+          socket.on('newReview', handleNewReview);
+        } catch (error) {
+          console.error('Erreur lors du chargement de Socket.IO:', error);
+        }
+      })();
+
+      return () => {
+        try {
+          if (socket) {
+            socket.off('newReview');
+            socket.disconnect();
+          }
+        } catch (e) {}
+      };
     }
   }, [onClose]);
 
